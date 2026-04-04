@@ -78,6 +78,7 @@
                             <div class="tool-group" id="tool-group">
                                 <button type="button" id="wand-toggle" class="tool-button active" data-tool="wand" aria-pressed="true">Magic Wand</button>
                                 <button type="button" id="brush-toggle" class="tool-button" data-tool="brush" aria-pressed="false">Brush</button>
+                                <button type="button" id="pan-toggle" class="tool-button" data-tool="pan" aria-pressed="false">Pan</button>
                             </div>
                         </div>
 
@@ -101,6 +102,7 @@
 
                     <div class="button-row">
                         <button type="submit" class="primary-button">Generate Cutout</button>
+                        <button type="button" id="preview-pack-button" class="ghost-button">Generate Model Previews</button>
                         <button type="button" id="download-button" class="secondary-button" disabled>Download Result</button>
                         <button type="button" id="reset-button" class="ghost-button">Reset</button>
                     </div>
@@ -109,6 +111,7 @@
                 <div class="status-card" id="status-card" aria-live="polite">
                     Upload an image to start. Use Studio Cutout for the best general result.
                 </div>
+                <div class="preview-pack-status" id="preview-pack-status">Preview pack is empty.</div>
             </section>
 
             <section class="panel preview-panel">
@@ -126,8 +129,24 @@
 
                 <div class="preview-toolbar">
                     <div class="status-pill" id="mode-pill">Result view</div>
-                    <p class="preview-hint" id="preview-hint">Hover to preview the Magic Wand selection.</p>
+                    <div class="zoom-group">
+                        <button type="button" id="zoom-out-button" class="ghost-button">-</button>
+                        <button type="button" id="zoom-reset-button" class="ghost-button">Fit</button>
+                        <button type="button" id="zoom-in-button" class="ghost-button">+</button>
+                        <button type="button" id="zoom-200-button" class="ghost-button">200%</button>
+                        <span class="zoom-value" id="zoom-value">100%</span>
+                    </div>
+                    <p class="preview-hint" id="preview-hint">Hover to preview the Magic Wand selection. Use mouse wheel to zoom and Alt+drag to pan.</p>
                 </div>
+
+                <div class="shortcut-bar">
+                    <span class="shortcut-chip">Space: Pan</span>
+                    <span class="shortcut-chip">O: Original</span>
+                    <span class="shortcut-chip">Wheel: Zoom</span>
+                    <span class="shortcut-chip">Double-click: Fit</span>
+                </div>
+
+                <div class="preview-cards" id="preview-cards"></div>
 
                 <div class="compare-stage checkerboard" id="compare-stage">
                     <div class="preview-empty" id="preview-empty">
@@ -135,6 +154,9 @@
                     </div>
                     <canvas id="result-canvas" class="preview-canvas" hidden></canvas>
                     <canvas id="overlay-canvas" class="preview-canvas overlay-canvas" hidden></canvas>
+                    <div class="pan-overlay" id="pan-overlay" hidden>
+                        <div class="pan-overlay-badge" id="pan-overlay-badge">Pan Ready</div>
+                    </div>
                     <div class="wand-cursor" id="wand-cursor" hidden>
                         <span class="wand-dot"></span>
                         <span class="wand-ring"></span>

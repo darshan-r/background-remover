@@ -3,6 +3,24 @@ import { applySelection, buildSelection, paintBrush } from "./cleanup.js";
 import { dom } from "./dom.js";
 import { createEditorState } from "./state.js";
 
+const MODEL_PRESETS = [
+    {
+        value: "birefnet-general",
+        label: "Studio",
+        copy: "Strong all-round cutout",
+    },
+    {
+        value: "birefnet-portrait",
+        label: "Portrait",
+        copy: "Tuned for people and hair",
+    },
+    {
+        value: "isnet-general-use",
+        label: "Balanced",
+        copy: "Lightweight general cutout",
+    },
+];
+
 const state = createEditorState();
 const store = createCanvasStore(dom);
 initializeCanvasStore(store);
@@ -15,6 +33,11 @@ resizeObserver.observe(dom.compareStage);
 dom.qualityRange.addEventListener("input", () => {
     dom.qualityValue.textContent = dom.qualityRange.value;
 });
+
+dom.zoomInButton.addEventListener("click", () => setZoom(state.zoom + 0.25));
+dom.zoomOutButton.addEventListener("click", () => setZoom(state.zoom - 0.25));
+dom.zoomResetButton.addEventListener("click", resetZoom);
+dom.zoom200Button.addEventListener("click", () => setZoom(2));
 
 dom.brushSize.addEventListener("input", () => {
     dom.brushSizeValue.textContent = dom.brushSize.value;
@@ -52,12 +75,15 @@ dom.toolGroup.addEventListener("click", (event) => {
     state.cleanupTool = button.dataset.tool;
     dom.wandToggle.classList.toggle("active", state.cleanupTool === "wand");
     dom.brushToggle.classList.toggle("active", state.cleanupTool === "brush");
+    dom.panToggle.classList.toggle("active", state.cleanupTool === "pan");
     dom.wandToggle.setAttribute("aria-pressed", String(state.cleanupTool === "wand"));
     dom.brushToggle.setAttribute("aria-pressed", String(state.cleanupTool === "brush"));
+    dom.panToggle.setAttribute("aria-pressed", String(state.cleanupTool === "pan"));
     state.hoverSelection = null;
     dom.wandCursor.hidden = true;
     dom.brushCursor.hidden = true;
     clearOverlay(dom, store);
+    updatePanUi();
     renderStage();
 });
 
@@ -70,9 +96,7 @@ dom.viewModeGroup.addEventListener("click", (event) => {
     }
 
     state.viewMode = button.dataset.view;
-    dom.viewModeButtons.forEach((candidate) => {
-        candidate.classList.toggle("active", candidate === button);
-    });
+    renderViewButtons();
     renderStage();
 });
 
@@ -95,6 +119,7 @@ dom.dropzone.addEventListener("drop", (event) => {
 });
 
 dom.fileInput.addEventListener("change", handleFileSelection);
+dom.previewPackButton.addEventListener("click", generatePreviewPack);
 
 dom.downloadButton.addEventListener("click", async () => {
     if (!state.workingReady) {
@@ -129,6 +154,12 @@ dom.compareStage.addEventListener("pointermove", (event) => {
         return;
     }
 
+    if (state.isPanning) {
+        dom.compareStage.style.cursor = "grabbing";
+        updatePan(event);
+        return;
+    }
+
     if (state.cleanupTool === "wand") {
         dom.brushCursor.hidden = true;
         updateWandCursor(event);
@@ -149,11 +180,47 @@ dom.compareStage.addEventListener("pointerleave", () => {
     dom.wandCursor.hidden = true;
     dom.brushCursor.hidden = true;
     state.isBrushing = false;
+    state.isPanning = false;
+    dom.compareStage.style.cursor = "default";
+    updatePanUi();
     clearOverlay(dom, store);
 });
 
 dom.compareStage.addEventListener("pointerdown", (event) => {
     if (!state.workingReady) {
+        return;
+    }
+
+    if (state.cleanupTool === "pan") {
+        if (state.isPanning) {
+            state.isPanning = false;
+            state.panStart = null;
+            dom.compareStage.style.cursor = "default";
+            updatePanUi();
+            return;
+        }
+        state.isPanning = true;
+        state.panStart = {
+            clientX: event.clientX,
+            clientY: event.clientY,
+            panX: state.panX,
+            panY: state.panY,
+        };
+        dom.compareStage.style.cursor = "grabbing";
+        updatePanUi();
+        return;
+    }
+
+    if (state.isSpacePanning || (event.altKey && state.zoom > 1)) {
+        state.isPanning = true;
+        state.panStart = {
+            clientX: event.clientX,
+            clientY: event.clientY,
+            panX: state.panX,
+            panY: state.panY,
+        };
+        dom.compareStage.setPointerCapture(event.pointerId);
+        updatePanUi();
         return;
     }
 
@@ -195,6 +262,56 @@ dom.compareStage.addEventListener("pointerdown", (event) => {
 
 dom.compareStage.addEventListener("pointerup", () => {
     state.isBrushing = false;
+    if (state.cleanupTool !== "pan" && !state.isSpacePanning) {
+        state.isPanning = false;
+        dom.compareStage.style.cursor = "default";
+        updatePanUi();
+    }
+});
+
+dom.compareStage.addEventListener("dblclick", () => {
+    resetZoom();
+});
+
+dom.compareStage.addEventListener("wheel", (event) => {
+    if (!state.workingReady) {
+        return;
+    }
+
+    event.preventDefault();
+    const delta = event.deltaY < 0 ? 0.2 : -0.2;
+    setZoom(state.zoom + delta);
+});
+
+window.addEventListener("keydown", (event) => {
+    if (event.code === "Space" && !state.isSpacePanning) {
+        state.isSpacePanning = true;
+        dom.compareStage.style.cursor = state.isPanning ? "grabbing" : "grab";
+        updatePanUi();
+    }
+
+    if (event.key.toLowerCase() === "o" && !state.transientViewMode) {
+        state.transientViewMode = state.viewMode;
+        state.viewMode = "original";
+        renderViewButtons();
+        renderStage();
+    }
+});
+
+window.addEventListener("keyup", (event) => {
+    if (event.code === "Space") {
+        state.isSpacePanning = false;
+        state.isPanning = false;
+        dom.compareStage.style.cursor = "default";
+        updatePanUi();
+    }
+
+    if (event.key.toLowerCase() === "o" && state.transientViewMode) {
+        state.viewMode = state.transientViewMode;
+        state.transientViewMode = null;
+        renderViewButtons();
+        renderStage();
+    }
 });
 
 dom.form.addEventListener("submit", async (event) => {
@@ -274,6 +391,8 @@ function handleFileSelection() {
         dom.undoButton.disabled = true;
         dom.downloadButton.disabled = false;
         state.hoverSelection = null;
+        resetZoom();
+        clearPreviewPack();
         setStatus(`Loaded ${file.name}. You can use Magic Wand or Brush immediately, or generate an AI cutout first.`);
         renderStage();
     }).catch(() => {
@@ -293,8 +412,9 @@ function renderStage() {
     dom.resultCanvas.hidden = false;
     dom.overlayCanvas.hidden = false;
     dom.previewEmpty.hidden = state.workingReady;
-    state.renderRect = drawContained(store.resultContext, dom.resultCanvas, getDisplaySource());
+    state.renderRect = drawZoomedImage(getDisplaySource());
     drawHoverSelection();
+    dom.zoomValue.textContent = `${Math.round(state.zoom * 100)}%`;
 
     if (!state.workingReady) {
         dom.modePill.textContent = "Result view";
@@ -304,6 +424,11 @@ function renderStage() {
         dom.previewHint.textContent = state.cleanupTool === "wand"
             ? "Hover to preview the connected region. Click to remove it from the original."
             : "Brush directly erases from the original image.";
+    } else if (state.cleanupTool === "pan") {
+        dom.modePill.textContent = state.isPanning ? "Pan locked" : `${capitalize(state.viewMode)} view`;
+        dom.previewHint.textContent = state.isPanning
+            ? "Pan is locked. Click once to release."
+            : "Pan mode is active. Click once to grab, move to pan, click again to release.";
     } else if (state.cleanupTool === "brush") {
         dom.modePill.textContent = `${capitalize(state.viewMode)} view`;
         dom.previewHint.textContent = "Brush directly erases from the current working image.";
@@ -321,6 +446,9 @@ function clearStage() {
     dom.previewEmpty.hidden = false;
     dom.modePill.textContent = "Result view";
     dom.previewHint.textContent = "Hover to preview the Magic Wand selection.";
+    dom.zoomValue.textContent = "100%";
+    dom.panOverlay.hidden = true;
+    dom.compareStage.classList.remove("pan-ready", "pan-locked");
 }
 
 function getDisplaySource() {
@@ -375,10 +503,14 @@ function createMaskCanvas() {
 }
 
 function updateWandCursor(event) {
-    const stageRect = dom.compareStage.getBoundingClientRect();
+    const point = mapPointerToStage(event);
+    if (!point) {
+        dom.wandCursor.hidden = true;
+        return;
+    }
     dom.wandCursor.hidden = false;
-    dom.wandCursor.style.left = `${event.clientX - stageRect.left}px`;
-    dom.wandCursor.style.top = `${event.clientY - stageRect.top}px`;
+    dom.wandCursor.style.left = `${point.x}px`;
+    dom.wandCursor.style.top = `${point.y}px`;
 }
 
 function updateHoverSelection(event) {
@@ -527,6 +659,180 @@ function mapPointerToStage(event) {
     return { x, y };
 }
 
+function drawZoomedImage(source) {
+    if (!source) {
+        return null;
+    }
+
+    const baseRect = drawContained(store.resultContext, dom.resultCanvas, source);
+    if (!baseRect) {
+        return null;
+    }
+
+    if (state.zoom === 1 && state.panX === 0 && state.panY === 0) {
+        return baseRect;
+    }
+
+    store.resultContext.clearRect(
+        0,
+        0,
+        dom.resultCanvas.clientWidth || 1,
+        dom.resultCanvas.clientHeight || 1,
+    );
+
+    const zoomedWidth = baseRect.width * state.zoom;
+    const zoomedHeight = baseRect.height * state.zoom;
+    const centeredX = (dom.resultCanvas.clientWidth - zoomedWidth) / 2;
+    const centeredY = (dom.resultCanvas.clientHeight - zoomedHeight) / 2;
+    const offsetX = clampPan(centeredX + state.panX, zoomedWidth, dom.resultCanvas.clientWidth);
+    const offsetY = clampPan(centeredY + state.panY, zoomedHeight, dom.resultCanvas.clientHeight);
+    store.resultContext.drawImage(source, offsetX, offsetY, zoomedWidth, zoomedHeight);
+    state.panX = offsetX - centeredX;
+    state.panY = offsetY - centeredY;
+    return { x: offsetX, y: offsetY, width: zoomedWidth, height: zoomedHeight };
+}
+
+function clampPan(offset, drawSize, viewportSize) {
+    if (drawSize <= viewportSize) {
+        return (viewportSize - drawSize) / 2;
+    }
+    const minOffset = viewportSize - drawSize;
+    const maxOffset = 0;
+    return Math.min(maxOffset, Math.max(minOffset, offset));
+}
+
+function setZoom(nextZoom) {
+    state.zoom = Math.min(4, Math.max(1, Math.round(nextZoom * 100) / 100));
+    if (state.zoom === 1) {
+        state.panX = 0;
+        state.panY = 0;
+    }
+    renderStage();
+}
+
+function resetZoom() {
+    state.zoom = 1;
+    state.panX = 0;
+    state.panY = 0;
+    renderStage();
+}
+
+function updatePan(event) {
+    if (!state.panStart) {
+        return;
+    }
+    state.panX = state.panStart.panX + (event.clientX - state.panStart.clientX);
+    state.panY = state.panStart.panY + (event.clientY - state.panStart.clientY);
+    renderStage();
+}
+
+function updatePanUi() {
+    const panReady = state.cleanupTool === "pan" || state.isSpacePanning;
+    dom.panOverlay.hidden = !panReady;
+    dom.compareStage.classList.toggle("pan-ready", panReady && !state.isPanning);
+    dom.compareStage.classList.toggle("pan-locked", state.isPanning);
+
+    if (!panReady) {
+        dom.panOverlayBadge.textContent = "Pan Ready";
+        return;
+    }
+
+    dom.panOverlayBadge.textContent = state.isPanning
+        ? "Pan Locked · Click to Release"
+        : state.isSpacePanning
+            ? "Temporary Pan"
+            : "Pan Ready · Click to Grab";
+}
+
+async function generatePreviewPack() {
+    const file = dom.fileInput.files?.[0];
+    if (!file) {
+        setStatus("Upload an image before generating preview variations.");
+        return;
+    }
+
+    dom.previewPackButton.disabled = true;
+    dom.previewPackStatus.textContent = "Generating preview pack...";
+    clearPreviewPack();
+
+    for (const preset of MODEL_PRESETS) {
+        const preview = await fetchModelPreview(file, preset);
+        if (preview) {
+            state.previewResults.push(preview);
+        }
+    }
+
+    renderPreviewCards();
+    dom.previewPackStatus.textContent = state.previewResults.length
+        ? "Preview pack ready. Click any card to apply that cutout."
+        : "Preview generation failed.";
+    dom.previewPackButton.disabled = false;
+}
+
+async function fetchModelPreview(file, preset) {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("model_name", preset.value);
+
+    try {
+        const response = await fetch("/api/remove", {
+            method: "POST",
+            body: formData,
+        });
+        if (!response.ok) {
+            return null;
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const image = await loadImage(url);
+        return { ...preset, url, image };
+    } catch {
+        return null;
+    }
+}
+
+function renderPreviewCards() {
+    dom.previewCards.innerHTML = "";
+    for (const preview of state.previewResults) {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "preview-card";
+        if (preview.value === dom.modelSelect.value) {
+            card.classList.add("active");
+        }
+        card.innerHTML = `
+            <img src="${preview.url}" alt="${preview.label} preview">
+            <div class="preview-card-title">${preview.label}</div>
+            <p class="preview-card-copy">${preview.copy}</p>
+        `;
+        card.addEventListener("click", () => applyPreview(preview));
+        dom.previewCards.appendChild(card);
+    }
+}
+
+function applyPreview(preview) {
+    dom.modelSelect.value = preview.value;
+    store.workingCanvas.width = preview.image.naturalWidth;
+    store.workingCanvas.height = preview.image.naturalHeight;
+    store.workingContext.clearRect(0, 0, store.workingCanvas.width, store.workingCanvas.height);
+    store.workingContext.drawImage(preview.image, 0, 0);
+    state.workingReady = true;
+    state.aiCutoutApplied = true;
+    state.cleanupHistory = [];
+    dom.undoButton.disabled = true;
+    renderPreviewCards();
+    setStatus(`${preview.label} preview applied to the editor.`);
+    renderStage();
+}
+
+function clearPreviewPack() {
+    for (const preview of state.previewResults) {
+        URL.revokeObjectURL(preview.url);
+    }
+    state.previewResults = [];
+    dom.previewCards.innerHTML = "";
+}
+
 function getBackgroundValue() {
     return dom.backgroundSelect.value === "custom"
         ? dom.customColorInput.value
@@ -571,15 +877,21 @@ function resetState() {
     state.originalImage = null;
     state.hoverSelection = null;
     state.renderRect = null;
+    state.panStart = null;
     state.viewMode = "result";
     state.cleanupTool = "wand";
-    dom.viewModeButtons.forEach((button) => {
-        button.classList.toggle("active", button.dataset.view === "result");
-    });
+    state.isSpacePanning = false;
+    state.transientViewMode = null;
+    state.zoom = 1;
+    state.panX = 0;
+    state.panY = 0;
+    renderViewButtons();
     dom.wandToggle.classList.add("active");
     dom.wandToggle.setAttribute("aria-pressed", "true");
     dom.brushToggle.classList.remove("active");
     dom.brushToggle.setAttribute("aria-pressed", "false");
+    dom.panToggle.classList.remove("active");
+    dom.panToggle.setAttribute("aria-pressed", "false");
 
     if (state.originalUrl) {
         URL.revokeObjectURL(state.originalUrl);
@@ -598,7 +910,10 @@ function resetState() {
     dom.downloadButton.disabled = true;
     dom.wandCursor.hidden = true;
     dom.brushCursor.hidden = true;
+    clearPreviewPack();
+    dom.previewPackStatus.textContent = "Preview pack is empty.";
     clearOverlay(dom, store);
+    updatePanUi();
     setStatus("Upload an image to start. Use Studio Cutout for the best general result.");
     renderStage();
 }
@@ -609,6 +924,12 @@ function setStatus(message) {
 
 function capitalize(value) {
     return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function renderViewButtons() {
+    dom.viewModeButtons.forEach((button) => {
+        button.classList.toggle("active", button.dataset.view === state.viewMode);
+    });
 }
 
 function syncBrushCursorSize() {
@@ -623,4 +944,6 @@ dom.qualityValue.textContent = dom.qualityRange.value;
 dom.brushSizeValue.textContent = dom.brushSize.value;
 dom.wandThresholdValue.textContent = dom.wandThreshold.value;
 syncBrushCursorSize();
+renderViewButtons();
+updatePanUi();
 renderStage();

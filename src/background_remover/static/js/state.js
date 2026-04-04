@@ -11,5 +11,13 @@ export function createEditorState() {
         downloadName: "image-no-bg.png",
         hoverSelection: null,
         isBrushing: false,
+        isPanning: false,
+        isSpacePanning: false,
+        panStart: null,
+        zoom: 1,
+        panX: 0,
+        panY: 0,
+        previewResults: [],
+        transientViewMode: null,
     };
 }
