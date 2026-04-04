@@ -73,13 +73,18 @@
                             <div>
                                 <p class="section-label">Cleanup</p>
                                 <strong>Magic Wand and Brush</strong>
-                                <p class="editor-copy">Use Magic Wand for connected regions or switch to Brush for direct erase cleanup.</p>
+                                <p class="editor-copy">Use Magic Wand for connected regions or switch to Brush for direct remove or restore cleanup.</p>
                             </div>
                             <div class="tool-group" id="tool-group">
                                 <button type="button" id="wand-toggle" class="tool-button active" data-tool="wand" aria-pressed="true">Magic Wand</button>
                                 <button type="button" id="brush-toggle" class="tool-button" data-tool="brush" aria-pressed="false">Brush</button>
                                 <button type="button" id="pan-toggle" class="tool-button" data-tool="pan" aria-pressed="false">Pan</button>
                             </div>
+                        </div>
+
+                        <div class="action-group" id="action-group" aria-label="Edit action">
+                            <button type="button" id="remove-action" class="tool-button active" data-action="remove" aria-pressed="true">Remove</button>
+                            <button type="button" id="restore-action" class="tool-button" data-action="restore" aria-pressed="false">Restore</button>
                         </div>
 
                         <div class="controls-grid cleanup-grid">

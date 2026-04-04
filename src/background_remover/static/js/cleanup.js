@@ -75,11 +75,43 @@ export function applySelection(store, selection) {
     store.workingContext.putImageData(imageData, 0, 0);
 }
 
+export function restoreSelection(store, selection) {
+    const originalData = store.originalContext.getImageData(
+        0,
+        0,
+        store.originalCanvas.width,
+        store.originalCanvas.height,
+    );
+    const workingData = store.workingContext.getImageData(
+        0,
+        0,
+        store.workingCanvas.width,
+        store.workingCanvas.height,
+    );
+    for (const pixel of selection.pixels) {
+        const index = pixel * 4;
+        workingData.data[index] = originalData.data[index];
+        workingData.data[index + 1] = originalData.data[index + 1];
+        workingData.data[index + 2] = originalData.data[index + 2];
+        workingData.data[index + 3] = originalData.data[index + 3];
+    }
+    store.workingContext.putImageData(workingData, 0, 0);
+}
+
 export function paintBrush(store, point, radius) {
     store.workingContext.save();
     store.workingContext.globalCompositeOperation = "destination-out";
     store.workingContext.beginPath();
     store.workingContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
     store.workingContext.fill();
+    store.workingContext.restore();
+}
+
+export function restoreBrush(store, point, radius) {
+    store.workingContext.save();
+    store.workingContext.beginPath();
+    store.workingContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    store.workingContext.clip();
+    store.workingContext.drawImage(store.originalCanvas, 0, 0);
     store.workingContext.restore();
 }

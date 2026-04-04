@@ -6,6 +6,7 @@ export function createEditorState() {
         aiCutoutApplied: false,
         viewMode: "result",
         cleanupTool: "wand",
+        editAction: "remove",
         renderRect: null,
         cleanupHistory: [],
         downloadName: "image-no-bg.png",

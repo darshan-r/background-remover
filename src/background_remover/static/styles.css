@@ -198,10 +198,15 @@ input[type="color"] {
 
 .button-row,
 .view-mode-group,
-.tool-group {
+.tool-group,
+.action-group {
     display: flex;
     flex-wrap: wrap;
     gap: 12px;
+}
+
+.action-group {
+    margin-top: 14px;
 }
 
 .shortcut-bar {

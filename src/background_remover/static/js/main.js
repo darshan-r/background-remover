@@ -1,5 +1,11 @@
 import { clearOverlay, createCanvasStore, drawContained, initializeCanvasStore, syncCanvasSize } from "./canvas.js";
-import { applySelection, buildSelection, paintBrush } from "./cleanup.js";
+import {
+    applySelection,
+    buildSelection,
+    paintBrush,
+    restoreBrush,
+    restoreSelection,
+} from "./cleanup.js";
 import { dom } from "./dom.js";
 import { createEditorState } from "./state.js";
 
@@ -84,6 +90,20 @@ dom.toolGroup.addEventListener("click", (event) => {
     dom.brushCursor.hidden = true;
     clearOverlay(dom, store);
     updatePanUi();
+    renderStage();
+});
+
+dom.actionGroup.addEventListener("click", (event) => {
+    const button = event.target.closest(".tool-button");
+    if (!button) {
+        return;
+    }
+
+    state.editAction = button.dataset.action;
+    dom.removeAction.classList.toggle("active", state.editAction === "remove");
+    dom.restoreAction.classList.toggle("active", state.editAction === "restore");
+    dom.removeAction.setAttribute("aria-pressed", String(state.editAction === "remove"));
+    dom.restoreAction.setAttribute("aria-pressed", String(state.editAction === "restore"));
     renderStage();
 });
 
@@ -253,10 +273,18 @@ dom.compareStage.addEventListener("pointerdown", (event) => {
     }
 
     pushHistorySnapshot();
-    applySelection(store, selection);
+    if (state.editAction === "restore") {
+        restoreSelection(store, selection);
+    } else {
+        applySelection(store, selection);
+    }
     state.hoverSelection = null;
     clearOverlay(dom, store);
-    setStatus("Connected background region removed. Hover to preview the next area before you click.");
+    setStatus(
+        state.editAction === "restore"
+            ? "Connected region restored from the original image."
+            : "Connected background region removed. Hover to preview the next area before you click.",
+    );
     renderStage();
 });
 
@@ -355,7 +383,7 @@ dom.form.addEventListener("submit", async (event) => {
         state.downloadName = createDownloadName(file.name, dom.formatSelect.value);
         dom.previewEmpty.hidden = true;
         dom.downloadButton.disabled = false;
-        setStatus("Cutout ready. Use Magic Wand for connected regions or Brush for direct cleanup.");
+        setStatus("Cutout ready. Use Magic Wand or Brush in remove or restore mode.");
         renderStage();
     } catch (error) {
         setStatus(error.message || "Background removal failed.");
@@ -393,7 +421,7 @@ function handleFileSelection() {
         state.hoverSelection = null;
         resetZoom();
         clearPreviewPack();
-        setStatus(`Loaded ${file.name}. You can use Magic Wand or Brush immediately, or generate an AI cutout first.`);
+        setStatus(`Loaded ${file.name}. You can use Magic Wand or Brush immediately in remove or restore mode, or generate an AI cutout first.`);
         renderStage();
     }).catch(() => {
         setStatus("Failed to load the selected image.");
@@ -422,8 +450,8 @@ function renderStage() {
     } else if (!state.aiCutoutApplied && state.viewMode === "result") {
         dom.modePill.textContent = "Editable original";
         dom.previewHint.textContent = state.cleanupTool === "wand"
-            ? "Hover to preview the connected region. Click to remove it from the original."
-            : "Brush directly erases from the original image.";
+            ? `Hover to preview the connected region. Click to ${state.editAction} it.`
+            : `Brush will ${state.editAction} directly on the original image.`;
     } else if (state.cleanupTool === "pan") {
         dom.modePill.textContent = state.isPanning ? "Pan locked" : `${capitalize(state.viewMode)} view`;
         dom.previewHint.textContent = state.isPanning
@@ -431,10 +459,14 @@ function renderStage() {
             : "Pan mode is active. Click once to grab, move to pan, click again to release.";
     } else if (state.cleanupTool === "brush") {
         dom.modePill.textContent = `${capitalize(state.viewMode)} view`;
-        dom.previewHint.textContent = "Brush directly erases from the current working image.";
+        dom.previewHint.textContent = state.editAction === "restore"
+            ? "Brush restores from the original image."
+            : "Brush directly erases from the current working image.";
     } else {
         dom.modePill.textContent = `${capitalize(state.viewMode)} view`;
-        dom.previewHint.textContent = "Hover to preview the connected region. Click to remove it.";
+        dom.previewHint.textContent = state.editAction === "restore"
+            ? "Hover to preview the connected region. Click to restore it from the original."
+            : "Hover to preview the connected region. Click to remove it.";
     }
 }
 
@@ -587,7 +619,11 @@ function paintAtPointer(event) {
     }
 
     const radius = (Number(dom.brushSize.value) * (store.workingCanvas.width / state.renderRect.width)) / 2;
-    paintBrush(store, point, radius);
+    if (state.editAction === "restore") {
+        restoreBrush(store, point, radius);
+    } else {
+        paintBrush(store, point, radius);
+    }
     renderStage();
 }
 
@@ -880,6 +916,7 @@ function resetState() {
     state.panStart = null;
     state.viewMode = "result";
     state.cleanupTool = "wand";
+    state.editAction = "remove";
     state.isSpacePanning = false;
     state.transientViewMode = null;
     state.zoom = 1;
@@ -892,6 +929,10 @@ function resetState() {
     dom.brushToggle.setAttribute("aria-pressed", "false");
     dom.panToggle.classList.remove("active");
     dom.panToggle.setAttribute("aria-pressed", "false");
+    dom.removeAction.classList.add("active");
+    dom.removeAction.setAttribute("aria-pressed", "true");
+    dom.restoreAction.classList.remove("active");
+    dom.restoreAction.setAttribute("aria-pressed", "false");
 
     if (state.originalUrl) {
         URL.revokeObjectURL(state.originalUrl);
