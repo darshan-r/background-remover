@@ -1,0 +1,47 @@
+[project]
+name = "background-remover"
+version = "0.1.0"
+description = "Web-based background remover built with FastAPI and rembg."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "pillow>=11.0.0",
+    "python-multipart>=0.0.9",
+    "uvicorn>=0.32.0",
+    "rembg[cpu]>=2.0.60",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.0",
+    "mypy>=1.18.0",
+    "pytest>=8.4.0",
+    "ruff>=0.13.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src", "tests", "main.py"]
+
+[[tool.mypy.overrides]]
+module = ["PIL", "PIL.*", "rembg", "uvicorn"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
