@@ -44,6 +44,8 @@ dom.zoomInButton.addEventListener("click", () => setZoom(state.zoom + 0.25));
 dom.zoomOutButton.addEventListener("click", () => setZoom(state.zoom - 0.25));
 dom.zoomResetButton.addEventListener("click", resetZoom);
 dom.zoom200Button.addEventListener("click", () => setZoom(2));
+dom.applyCropButton.addEventListener("click", applyCrop);
+dom.clearCropButton.addEventListener("click", clearCropSelection);
 
 dom.brushSize.addEventListener("input", () => {
     dom.brushSizeValue.textContent = dom.brushSize.value;
@@ -74,23 +76,11 @@ dom.formatSelect.addEventListener("change", () => {
 
 dom.toolGroup.addEventListener("click", (event) => {
     const button = event.target.closest(".tool-button");
-    if (!button) {
+    if (!button || !button.dataset.tool) {
         return;
     }
 
-    state.cleanupTool = button.dataset.tool;
-    dom.wandToggle.classList.toggle("active", state.cleanupTool === "wand");
-    dom.brushToggle.classList.toggle("active", state.cleanupTool === "brush");
-    dom.panToggle.classList.toggle("active", state.cleanupTool === "pan");
-    dom.wandToggle.setAttribute("aria-pressed", String(state.cleanupTool === "wand"));
-    dom.brushToggle.setAttribute("aria-pressed", String(state.cleanupTool === "brush"));
-    dom.panToggle.setAttribute("aria-pressed", String(state.cleanupTool === "pan"));
-    state.hoverSelection = null;
-    dom.wandCursor.hidden = true;
-    dom.brushCursor.hidden = true;
-    clearOverlay(dom, store);
-    updatePanUi();
-    renderStage();
+    setCleanupTool(button.dataset.tool);
 });
 
 dom.actionGroup.addEventListener("click", (event) => {
@@ -104,6 +94,7 @@ dom.actionGroup.addEventListener("click", (event) => {
     dom.restoreAction.classList.toggle("active", state.editAction === "restore");
     dom.removeAction.setAttribute("aria-pressed", String(state.editAction === "remove"));
     dom.restoreAction.setAttribute("aria-pressed", String(state.editAction === "restore"));
+    syncWorkspaceSummary();
     renderStage();
 });
 
@@ -180,15 +171,37 @@ dom.compareStage.addEventListener("pointermove", (event) => {
         return;
     }
 
+    if (state.cleanupTool === "crop") {
+        dom.wandCursor.hidden = true;
+        dom.brushCursor.hidden = true;
+        dom.compareStage.style.cursor = state.isCropping ? "crosshair" : "crosshair";
+        if (state.isCropping) {
+            updateCropSelection(event);
+        } else {
+            drawCropSelection();
+        }
+        return;
+    }
+
     if (state.cleanupTool === "wand") {
+        dom.compareStage.style.cursor = "default";
         dom.brushCursor.hidden = true;
         updateWandCursor(event);
         updateHoverSelection(event);
         return;
     }
 
+    if (state.cleanupTool === "pan" || state.isSpacePanning) {
+        clearOverlay(dom, store);
+        dom.wandCursor.hidden = true;
+        dom.brushCursor.hidden = true;
+        dom.compareStage.style.cursor = state.isPanning ? "grabbing" : "grab";
+        return;
+    }
+
     clearOverlay(dom, store);
     dom.wandCursor.hidden = true;
+    dom.compareStage.style.cursor = "default";
     updateBrushCursor(event);
     if (state.isBrushing) {
         paintAtPointer(event);
@@ -199,11 +212,11 @@ dom.compareStage.addEventListener("pointerleave", () => {
     state.hoverSelection = null;
     dom.wandCursor.hidden = true;
     dom.brushCursor.hidden = true;
-    state.isBrushing = false;
-    state.isPanning = false;
-    dom.compareStage.style.cursor = "default";
-    updatePanUi();
-    clearOverlay(dom, store);
+    if (!state.isBrushing && !state.isCropping && !state.isPanning) {
+        dom.compareStage.style.cursor = "default";
+        updatePanUi();
+        renderStage();
+    }
 });
 
 dom.compareStage.addEventListener("pointerdown", (event) => {
@@ -212,13 +225,6 @@ dom.compareStage.addEventListener("pointerdown", (event) => {
     }
 
     if (state.cleanupTool === "pan") {
-        if (state.isPanning) {
-            state.isPanning = false;
-            state.panStart = null;
-            dom.compareStage.style.cursor = "default";
-            updatePanUi();
-            return;
-        }
         state.isPanning = true;
         state.panStart = {
             clientX: event.clientX,
@@ -227,6 +233,7 @@ dom.compareStage.addEventListener("pointerdown", (event) => {
             panY: state.panY,
         };
         dom.compareStage.style.cursor = "grabbing";
+        dom.compareStage.setPointerCapture(event.pointerId);
         updatePanUi();
         return;
     }
@@ -241,6 +248,19 @@ dom.compareStage.addEventListener("pointerdown", (event) => {
         };
         dom.compareStage.setPointerCapture(event.pointerId);
         updatePanUi();
+        return;
+    }
+
+    if (state.cleanupTool === "crop") {
+        const point = mapPointerToImage(event);
+        if (!point) {
+            return;
+        }
+        state.isCropping = true;
+        state.cropStart = point;
+        state.cropRect = normalizeCropRect(point, point);
+        dom.compareStage.setPointerCapture(event.pointerId);
+        drawCropSelection();
         return;
     }
 
@@ -288,14 +308,12 @@ dom.compareStage.addEventListener("pointerdown", (event) => {
     renderStage();
 });
 
-dom.compareStage.addEventListener("pointerup", () => {
-    state.isBrushing = false;
-    if (state.cleanupTool !== "pan" && !state.isSpacePanning) {
-        state.isPanning = false;
-        dom.compareStage.style.cursor = "default";
-        updatePanUi();
-    }
-});
+dom.compareStage.addEventListener("pointerup", (event) => finishPointerInteraction(event));
+dom.compareStage.addEventListener("pointercancel", (event) => finishPointerInteraction(event));
+dom.compareStage.addEventListener("lostpointercapture", () => finishPointerInteraction());
+
+window.addEventListener("pointerup", (event) => finishPointerInteraction(event));
+window.addEventListener("pointercancel", (event) => finishPointerInteraction(event));
 
 dom.compareStage.addEventListener("dblclick", () => {
     resetZoom();
@@ -329,9 +347,7 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener("keyup", (event) => {
     if (event.code === "Space") {
         state.isSpacePanning = false;
-        state.isPanning = false;
-        dom.compareStage.style.cursor = "default";
-        updatePanUi();
+        finishPointerInteraction();
     }
 
     if (event.key.toLowerCase() === "o" && state.transientViewMode) {
@@ -379,11 +395,14 @@ dom.form.addEventListener("submit", async (event) => {
         state.workingReady = true;
         state.aiCutoutApplied = true;
         state.cleanupHistory = [];
+        state.cropRect = null;
+        state.cropStart = null;
         dom.undoButton.disabled = true;
         state.downloadName = createDownloadName(file.name, dom.formatSelect.value);
         dom.previewEmpty.hidden = true;
         dom.downloadButton.disabled = false;
         setStatus("Cutout ready. Use Magic Wand or Brush in remove or restore mode.");
+        syncWorkspaceSummary();
         renderStage();
     } catch (error) {
         setStatus(error.message || "Background removal failed.");
@@ -416,11 +435,14 @@ function handleFileSelection() {
         state.workingReady = true;
         state.aiCutoutApplied = false;
         state.cleanupHistory = [];
+        state.cropRect = null;
+        state.cropStart = null;
         dom.undoButton.disabled = true;
         dom.downloadButton.disabled = false;
         state.hoverSelection = null;
         resetZoom();
         clearPreviewPack();
+        syncFileDetails(file, image);
         setStatus(`Loaded ${file.name}. You can use Magic Wand or Brush immediately in remove or restore mode, or generate an AI cutout first.`);
         renderStage();
     }).catch(() => {
@@ -441,7 +463,7 @@ function renderStage() {
     dom.overlayCanvas.hidden = false;
     dom.previewEmpty.hidden = state.workingReady;
     state.renderRect = drawZoomedImage(getDisplaySource());
-    drawHoverSelection();
+    renderOverlay();
     dom.zoomValue.textContent = `${Math.round(state.zoom * 100)}%`;
 
     if (!state.workingReady) {
@@ -449,14 +471,27 @@ function renderStage() {
         dom.previewHint.textContent = "Upload an image to begin.";
     } else if (!state.aiCutoutApplied && state.viewMode === "result") {
         dom.modePill.textContent = "Editable original";
-        dom.previewHint.textContent = state.cleanupTool === "wand"
-            ? `Hover to preview the connected region. Click to ${state.editAction} it.`
-            : `Brush will ${state.editAction} directly on the original image.`;
+        if (state.cleanupTool === "wand") {
+            dom.previewHint.textContent = `Hover to preview the connected region. Click to ${state.editAction} it.`;
+        } else if (state.cleanupTool === "brush") {
+            dom.previewHint.textContent = `Brush will ${state.editAction} directly on the original image.`;
+        } else if (state.cleanupTool === "crop") {
+            dom.previewHint.textContent = state.cropRect
+                ? "Drag to redraw the crop box, then apply it."
+                : "Drag on the image to create a crop box before generating the cutout.";
+        } else {
+            dom.previewHint.textContent = "Pan mode is active. Click and drag to move the image.";
+        }
     } else if (state.cleanupTool === "pan") {
-        dom.modePill.textContent = state.isPanning ? "Pan locked" : `${capitalize(state.viewMode)} view`;
+        dom.modePill.textContent = state.isPanning ? "Panning" : `${capitalize(state.viewMode)} view`;
         dom.previewHint.textContent = state.isPanning
-            ? "Pan is locked. Click once to release."
-            : "Pan mode is active. Click once to grab, move to pan, click again to release.";
+            ? "Release the pointer to stop panning."
+            : "Pan mode is active. Click and drag to move the image.";
+    } else if (state.cleanupTool === "crop") {
+        dom.modePill.textContent = "Crop mode";
+        dom.previewHint.textContent = state.cropRect
+            ? "Drag to redraw the crop box, then apply it."
+            : "Drag on the image to create a crop box before or after background removal.";
     } else if (state.cleanupTool === "brush") {
         dom.modePill.textContent = `${capitalize(state.viewMode)} view`;
         dom.previewHint.textContent = state.editAction === "restore"
@@ -468,6 +503,9 @@ function renderStage() {
             ? "Hover to preview the connected region. Click to restore it from the original."
             : "Hover to preview the connected region. Click to remove it.";
     }
+
+    syncCropButtons();
+    syncWorkspaceSummary();
 }
 
 function clearStage() {
@@ -480,12 +518,14 @@ function clearStage() {
     dom.previewHint.textContent = "Hover to preview the Magic Wand selection.";
     dom.zoomValue.textContent = "100%";
     dom.panOverlay.hidden = true;
-    dom.compareStage.classList.remove("pan-ready", "pan-locked");
+    dom.compareStage.classList.remove("pan-ready", "pan-locked", "crop-ready");
+    syncCropButtons();
+    syncWorkspaceSummary();
 }
 
 function getDisplaySource() {
     if (state.viewMode === "original") {
-        return state.originalImage;
+        return store.originalCanvas;
     }
 
     if (state.viewMode === "mask") {
@@ -600,6 +640,41 @@ function drawHoverSelection() {
     );
 }
 
+function renderOverlay() {
+    if (state.cleanupTool === "crop") {
+        drawCropSelection();
+        return;
+    }
+    drawHoverSelection();
+}
+
+function drawCropSelection() {
+    clearOverlay(dom, store);
+    if (
+        state.cleanupTool !== "crop"
+        || !state.workingReady
+        || !state.cropRect
+        || !state.renderRect
+    ) {
+        return;
+    }
+
+    const cropRect = mapImageRectToStage(state.cropRect);
+    if (!cropRect) {
+        return;
+    }
+
+    store.overlayContext.save();
+    store.overlayContext.fillStyle = "rgba(34, 23, 13, 0.45)";
+    store.overlayContext.fillRect(0, 0, dom.overlayCanvas.clientWidth || 1, dom.overlayCanvas.clientHeight || 1);
+    store.overlayContext.clearRect(cropRect.x, cropRect.y, cropRect.width, cropRect.height);
+    store.overlayContext.strokeStyle = "rgba(255, 255, 255, 0.98)";
+    store.overlayContext.lineWidth = 2;
+    store.overlayContext.setLineDash([8, 6]);
+    store.overlayContext.strokeRect(cropRect.x, cropRect.y, cropRect.width, cropRect.height);
+    store.overlayContext.restore();
+}
+
 function updateBrushCursor(event) {
     const point = mapPointerToStage(event);
     if (!point) {
@@ -634,18 +709,29 @@ function undoCleanup() {
         return;
     }
 
-    loadImage(snapshot).then((image) => {
-        store.workingCanvas.width = image.naturalWidth;
-        store.workingCanvas.height = image.naturalHeight;
+    Promise.all([
+        loadImage(snapshot.working),
+        loadImage(snapshot.original),
+    ]).then(([workingImage, originalImage]) => {
+        store.workingCanvas.width = workingImage.naturalWidth;
+        store.workingCanvas.height = workingImage.naturalHeight;
         store.workingContext.clearRect(0, 0, store.workingCanvas.width, store.workingCanvas.height);
-        store.workingContext.drawImage(image, 0, 0);
+        store.workingContext.drawImage(workingImage, 0, 0);
+        store.originalCanvas.width = originalImage.naturalWidth;
+        store.originalCanvas.height = originalImage.naturalHeight;
+        store.originalContext.clearRect(0, 0, store.originalCanvas.width, store.originalCanvas.height);
+        store.originalContext.drawImage(originalImage, 0, 0);
+        state.originalImage = originalImage;
         dom.undoButton.disabled = state.cleanupHistory.length === 0;
         renderStage();
     });
 }
 
 function pushHistorySnapshot() {
-    state.cleanupHistory.push(store.workingCanvas.toDataURL("image/png"));
+    state.cleanupHistory.push({
+        working: store.workingCanvas.toDataURL("image/png"),
+        original: store.originalCanvas.toDataURL("image/png"),
+    });
     if (state.cleanupHistory.length > 15) {
         state.cleanupHistory.shift();
     }
@@ -675,6 +761,20 @@ function mapPointerToImage(event) {
     };
 }
 
+function mapPointerToImageClamped(event) {
+    if (!state.renderRect) {
+        return null;
+    }
+
+    const stageRect = dom.compareStage.getBoundingClientRect();
+    const x = clampValue(event.clientX - stageRect.left, state.renderRect.x, state.renderRect.x + state.renderRect.width);
+    const y = clampValue(event.clientY - stageRect.top, state.renderRect.y, state.renderRect.y + state.renderRect.height);
+    return {
+        x: ((x - state.renderRect.x) / state.renderRect.width) * store.workingCanvas.width,
+        y: ((y - state.renderRect.y) / state.renderRect.height) * store.workingCanvas.height,
+    };
+}
+
 function mapPointerToStage(event) {
     if (!state.renderRect) {
         return null;
@@ -693,6 +793,19 @@ function mapPointerToStage(event) {
     }
 
     return { x, y };
+}
+
+function mapImageRectToStage(rect) {
+    if (!state.renderRect) {
+        return null;
+    }
+
+    return {
+        x: state.renderRect.x + ((rect.x / store.workingCanvas.width) * state.renderRect.width),
+        y: state.renderRect.y + ((rect.y / store.workingCanvas.height) * state.renderRect.height),
+        width: (rect.width / store.workingCanvas.width) * state.renderRect.width,
+        height: (rect.height / store.workingCanvas.height) * state.renderRect.height,
+    };
 }
 
 function drawZoomedImage(source) {
@@ -762,11 +875,159 @@ function updatePan(event) {
     renderStage();
 }
 
+function finishPointerInteraction(event) {
+    const wasBrushing = state.isBrushing;
+    const wasCropping = state.isCropping;
+    const wasPanning = state.isPanning;
+
+    state.isBrushing = false;
+    if (state.isCropping && event) {
+        updateCropSelection(event);
+    }
+    state.isCropping = false;
+    state.isPanning = false;
+    state.panStart = null;
+
+    if (event?.pointerId !== undefined && dom.compareStage.hasPointerCapture(event.pointerId)) {
+        dom.compareStage.releasePointerCapture(event.pointerId);
+    }
+
+    dom.compareStage.style.cursor = state.cleanupTool === "pan" || state.isSpacePanning
+        ? "grab"
+        : state.cleanupTool === "crop"
+            ? "crosshair"
+            : "default";
+    updatePanUi();
+
+    if (wasBrushing || wasCropping || wasPanning) {
+        renderStage();
+    }
+}
+
+function updateCropSelection(event) {
+    if (!state.cropStart) {
+        return;
+    }
+
+    const point = mapPointerToImageClamped(event);
+    if (!point) {
+        return;
+    }
+
+    state.cropRect = normalizeCropRect(state.cropStart, point);
+    drawCropSelection();
+    syncCropButtons();
+}
+
+function normalizeCropRect(start, end) {
+    const maxWidth = store.workingCanvas.width;
+    const maxHeight = store.workingCanvas.height;
+    const startX = clampValue(start.x, 0, maxWidth);
+    const startY = clampValue(start.y, 0, maxHeight);
+    const endX = clampValue(end.x, 0, maxWidth);
+    const endY = clampValue(end.y, 0, maxHeight);
+    const x = Math.floor(Math.min(startX, endX));
+    const y = Math.floor(Math.min(startY, endY));
+    const width = Math.max(1, Math.floor(Math.abs(endX - startX)));
+    const height = Math.max(1, Math.floor(Math.abs(endY - startY)));
+    return { x, y, width, height };
+}
+
+async function applyCrop() {
+    if (!state.cropRect || !state.workingReady) {
+        return;
+    }
+
+    if (state.cropRect.width < 2 || state.cropRect.height < 2) {
+        setStatus("Draw a larger crop box before applying it.");
+        return;
+    }
+
+    pushHistorySnapshot();
+    cropCanvas(store.originalCanvas, store.originalContext, state.cropRect);
+    cropCanvas(store.workingCanvas, store.workingContext, state.cropRect);
+    state.cropRect = null;
+    state.cropStart = null;
+    state.hoverSelection = null;
+    await syncOriginalImageFromCanvas();
+    setStatus("Crop applied to the original image and current result.");
+    renderStage();
+}
+
+function clearCropSelection() {
+    state.cropRect = null;
+    state.cropStart = null;
+    state.isCropping = false;
+    renderStage();
+}
+
+function cropCanvas(canvas, context, rect) {
+    const snapshot = document.createElement("canvas");
+    snapshot.width = rect.width;
+    snapshot.height = rect.height;
+    const snapshotContext = snapshot.getContext("2d");
+    snapshotContext.drawImage(
+        canvas,
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+        0,
+        0,
+        rect.width,
+        rect.height,
+    );
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(snapshot, 0, 0);
+}
+
+async function syncOriginalImageFromCanvas() {
+    const image = await loadImage(store.originalCanvas.toDataURL("image/png"));
+    state.originalImage = image;
+}
+
+function syncCropButtons() {
+    const hasCrop = Boolean(state.cropRect);
+    dom.applyCropButton.disabled = !hasCrop || !state.workingReady;
+    dom.clearCropButton.disabled = !hasCrop;
+}
+
+function setCleanupTool(tool) {
+    state.cleanupTool = tool;
+    state.hoverSelection = null;
+    state.isCropping = false;
+    state.isBrushing = false;
+    state.isPanning = false;
+    state.panStart = null;
+    dom.wandToggle.classList.toggle("active", state.cleanupTool === "wand");
+    dom.brushToggle.classList.toggle("active", state.cleanupTool === "brush");
+    dom.cropToggle.classList.toggle("active", state.cleanupTool === "crop");
+    dom.panToggle.classList.toggle("active", state.cleanupTool === "pan");
+    dom.wandToggle.setAttribute("aria-pressed", String(state.cleanupTool === "wand"));
+    dom.brushToggle.setAttribute("aria-pressed", String(state.cleanupTool === "brush"));
+    dom.cropToggle.setAttribute("aria-pressed", String(state.cleanupTool === "crop"));
+    dom.panToggle.setAttribute("aria-pressed", String(state.cleanupTool === "pan"));
+    dom.wandCursor.hidden = true;
+    dom.brushCursor.hidden = true;
+    clearOverlay(dom, store);
+    dom.compareStage.style.cursor = state.cleanupTool === "pan"
+        ? "grab"
+        : state.cleanupTool === "crop"
+            ? "crosshair"
+            : "default";
+    updatePanUi();
+    syncWorkspaceSummary();
+    renderStage();
+}
+
 function updatePanUi() {
     const panReady = state.cleanupTool === "pan" || state.isSpacePanning;
     dom.panOverlay.hidden = !panReady;
     dom.compareStage.classList.toggle("pan-ready", panReady && !state.isPanning);
     dom.compareStage.classList.toggle("pan-locked", state.isPanning);
+    dom.compareStage.classList.toggle("crop-ready", state.cleanupTool === "crop");
 
     if (!panReady) {
         dom.panOverlayBadge.textContent = "Pan Ready";
@@ -774,10 +1035,14 @@ function updatePanUi() {
     }
 
     dom.panOverlayBadge.textContent = state.isPanning
-        ? "Pan Locked · Click to Release"
+        ? "Panning"
         : state.isSpacePanning
             ? "Temporary Pan"
-            : "Pan Ready · Click to Grab";
+            : "Pan Ready · Drag to Move";
+}
+
+function clampValue(value, min, max) {
+    return Math.min(max, Math.max(min, value));
 }
 
 async function generatePreviewPack() {
@@ -803,6 +1068,7 @@ async function generatePreviewPack() {
         ? "Preview pack ready. Click any card to apply that cutout."
         : "Preview generation failed.";
     dom.previewPackButton.disabled = false;
+    syncWorkspaceSummary();
 }
 
 async function fetchModelPreview(file, preset) {
@@ -855,8 +1121,11 @@ function applyPreview(preview) {
     state.workingReady = true;
     state.aiCutoutApplied = true;
     state.cleanupHistory = [];
+    state.cropRect = null;
+    state.cropStart = null;
     dom.undoButton.disabled = true;
     renderPreviewCards();
+    syncWorkspaceSummary();
     setStatus(`${preview.label} preview applied to the editor.`);
     renderStage();
 }
@@ -867,6 +1136,7 @@ function clearPreviewPack() {
     }
     state.previewResults = [];
     dom.previewCards.innerHTML = "";
+    syncWorkspaceSummary();
 }
 
 function getBackgroundValue() {
@@ -913,7 +1183,12 @@ function resetState() {
     state.originalImage = null;
     state.hoverSelection = null;
     state.renderRect = null;
+    state.isCropping = false;
+    state.isPanning = false;
+    state.isBrushing = false;
     state.panStart = null;
+    state.cropStart = null;
+    state.cropRect = null;
     state.viewMode = "result";
     state.cleanupTool = "wand";
     state.editAction = "remove";
@@ -922,11 +1197,14 @@ function resetState() {
     state.zoom = 1;
     state.panX = 0;
     state.panY = 0;
+    syncFileDetails();
     renderViewButtons();
     dom.wandToggle.classList.add("active");
     dom.wandToggle.setAttribute("aria-pressed", "true");
     dom.brushToggle.classList.remove("active");
     dom.brushToggle.setAttribute("aria-pressed", "false");
+    dom.cropToggle.classList.remove("active");
+    dom.cropToggle.setAttribute("aria-pressed", "false");
     dom.panToggle.classList.remove("active");
     dom.panToggle.setAttribute("aria-pressed", "false");
     dom.removeAction.classList.add("active");
@@ -951,6 +1229,7 @@ function resetState() {
     dom.downloadButton.disabled = true;
     dom.wandCursor.hidden = true;
     dom.brushCursor.hidden = true;
+    syncCropButtons();
     clearPreviewPack();
     dom.previewPackStatus.textContent = "Preview pack is empty.";
     clearOverlay(dom, store);
@@ -963,8 +1242,87 @@ function setStatus(message) {
     dom.statusCard.textContent = message;
 }
 
+function syncFileDetails(file = null, image = null) {
+    if (!file || !image) {
+        dom.selectedFileName.textContent = "No file selected";
+        dom.imageMeta.textContent = "Load a file to enable cutout, cleanup, and export controls.";
+        return;
+    }
+
+    dom.selectedFileName.textContent = file.name;
+    dom.imageMeta.textContent = `${image.naturalWidth} x ${image.naturalHeight} px · ${formatFileSize(file.size)}`;
+}
+
+function syncWorkspaceSummary() {
+    dom.toolSummary.textContent = getToolLabel(state.cleanupTool);
+    dom.actionSummary.textContent = getActionSummary();
+    dom.workflowStep.textContent = getWorkflowStepLabel();
+}
+
 function capitalize(value) {
     return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function getToolLabel(tool) {
+    if (tool === "brush") {
+        return "Brush";
+    }
+    if (tool === "crop") {
+        return "Crop";
+    }
+    if (tool === "pan") {
+        return "Pan";
+    }
+    return "Magic Wand";
+}
+
+function getActionSummary() {
+    if (state.cleanupTool === "brush") {
+        return state.editAction === "restore"
+            ? "Restore missing subject details with direct paint."
+            : "Erase unwanted pixels with direct paint.";
+    }
+
+    if (state.cleanupTool === "crop") {
+        return state.cropRect
+            ? "Crop box ready. Apply it when the framing looks correct."
+            : "Draw a crop box to tighten the composition.";
+    }
+
+    if (state.cleanupTool === "pan") {
+        return "Move around the canvas without changing pixels.";
+    }
+
+    return state.editAction === "restore"
+        ? "Restore connected regions from the original image."
+        : "Remove connected background regions.";
+}
+
+function getWorkflowStepLabel() {
+    if (!state.originalImage) {
+        return "1. Import an image";
+    }
+
+    if (!state.aiCutoutApplied) {
+        return "2. Generate a cutout or refine manually";
+    }
+
+    if (state.cropRect) {
+        return "3. Crop selection ready";
+    }
+
+    if (state.previewResults.length > 0) {
+        return "3. Compare previews and refine";
+    }
+
+    return "4. Refine and export";
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024 * 1024) {
+        return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function renderViewButtons() {
@@ -985,6 +1343,8 @@ dom.qualityValue.textContent = dom.qualityRange.value;
 dom.brushSizeValue.textContent = dom.brushSize.value;
 dom.wandThresholdValue.textContent = dom.wandThreshold.value;
 syncBrushCursorSize();
+syncFileDetails();
+syncWorkspaceSummary();
 renderViewButtons();
 updatePanUi();
 renderStage();

@@ -14,6 +14,14 @@ uv sync
 python main.py
 ```
 
+## Windows Launcher
+
+Double-click `run-app.bat` or run:
+
+```bat
+run-app.bat
+```
+
 ## Features
 
 - Drag-and-drop upload

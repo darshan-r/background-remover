@@ -10,122 +10,190 @@
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    <div class="page-shell">
-        <header class="hero">
-            <p class="eyebrow">Precision cutouts</p>
-            <h1>Remove backgrounds with AI, then refine with Magic Wand.</h1>
-            <p class="hero-copy">
-                Generate a strong first-pass cutout, inspect the result clearly, and remove trapped background regions with a live hover preview before you click.
-            </p>
+    <div class="app-shell">
+        <header class="topbar panel">
+            <div class="brand-block">
+                <p class="eyebrow">AI Editor</p>
+                <h1>Background Remover Studio</h1>
+                <p class="hero-copy">
+                    Generate a cutout fast, compare model variants, then clean edges with Magic Wand, Brush, Crop, and precision zoom controls.
+                </p>
+            </div>
+            <div class="hero-stats" aria-label="Workflow overview">
+                <div class="stat-card">
+                    <span class="stat-label">Workflow</span>
+                    <strong id="workflow-step">1. Import an image</strong>
+                    <p>Follow the left panel from upload to export.</p>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Active tool</span>
+                    <strong id="tool-summary">Magic Wand</strong>
+                    <p id="action-summary">Remove connected background regions.</p>
+                </div>
+            </div>
         </header>
 
         <main class="workspace">
-            <section class="panel control-panel">
-                <form id="removal-form">
-                    <label for="file-input" class="dropzone" id="dropzone">
-                        <input id="file-input" name="file" type="file" accept="image/*" required>
-                        <span class="dropzone-title">Drop an image here</span>
-                        <span class="dropzone-subtitle">or click to browse from your device</span>
-                    </label>
-
-                    <div class="controls-grid">
-                        <div class="field-group field-span-2">
-                            <label for="model-select">AI quality mode</label>
-                            <select id="model-select" name="model_name">
-                                <option value="birefnet-general">Studio cutout</option>
-                                <option value="birefnet-portrait">Portrait cutout</option>
-                                <option value="isnet-general-use">Balanced cutout</option>
-                            </select>
+            <aside class="panel sidebar-panel">
+                <form id="removal-form" class="sidebar-form">
+                    <section class="panel-section">
+                        <div class="section-heading">
+                            <p class="section-label">Step 1</p>
+                            <h2>Import</h2>
+                            <p class="section-copy">Start with a file, then keep refining in the same workspace.</p>
                         </div>
 
-                        <div class="field-group">
-                            <label for="background-select">Preview background</label>
-                            <select id="background-select" name="background">
-                                <option value="transparent">Transparent</option>
-                                <option value="white">White</option>
-                                <option value="black">Black</option>
-                                <option value="custom">Custom color</option>
-                            </select>
+                        <label for="file-input" class="dropzone" id="dropzone">
+                            <input id="file-input" name="file" type="file" accept="image/*" required>
+                            <span class="dropzone-icon" aria-hidden="true">+</span>
+                            <span class="dropzone-title">Drop image or click to browse</span>
+                            <span class="dropzone-subtitle">PNG, JPEG, WEBP and other common image formats</span>
+                        </label>
+
+                        <div class="file-card">
+                            <span class="file-card-label">Current image</span>
+                            <strong id="selected-file-name">No file selected</strong>
+                            <p id="image-meta">Load a file to enable cutout, cleanup, and export controls.</p>
+                        </div>
+                    </section>
+
+                    <section class="panel-section">
+                        <div class="section-heading">
+                            <p class="section-label">Step 2</p>
+                            <h2>Generate</h2>
+                            <p class="section-copy">Choose a model and preview how each AI variant handles edges, hair, and objects.</p>
                         </div>
 
-                        <div class="field-group" id="custom-color-group" hidden>
-                            <label for="background-color">Custom color</label>
-                            <input id="background-color" type="color" value="#f4efe6">
-                        </div>
-
-                        <div class="field-group">
-                            <label for="format-select">Export format</label>
-                            <select id="format-select" name="output_format">
-                                <option value="png">PNG</option>
-                                <option value="jpeg">JPEG</option>
-                                <option value="webp">WEBP</option>
-                            </select>
-                        </div>
-
-                        <div class="field-group">
-                            <label for="quality-range">Quality <span id="quality-value">92</span></label>
-                            <input id="quality-range" name="quality" type="range" min="1" max="100" value="92">
-                        </div>
-                    </div>
-
-                    <section class="editor-tools">
-                        <div class="editor-header">
-                            <div>
-                                <p class="section-label">Cleanup</p>
-                                <strong>Magic Wand and Brush</strong>
-                                <p class="editor-copy">Use Magic Wand for connected regions or switch to Brush for direct remove or restore cleanup.</p>
+                        <div class="controls-grid">
+                            <div class="field-group field-span-2">
+                                <label for="model-select">AI quality mode</label>
+                                <select id="model-select" name="model_name">
+                                    <option value="birefnet-general">Studio cutout</option>
+                                    <option value="birefnet-portrait">Portrait cutout</option>
+                                    <option value="isnet-general-use">Balanced cutout</option>
+                                </select>
                             </div>
-                            <div class="tool-group" id="tool-group">
+                        </div>
+
+                        <div class="button-stack">
+                            <button type="submit" class="primary-button action-button">Generate Cutout</button>
+                            <button type="button" id="preview-pack-button" class="ghost-button action-button">Compare All Models</button>
+                        </div>
+
+                        <div class="info-card">
+                            <span class="info-card-title">Model guide</span>
+                            <p>Studio is the strongest default. Portrait is better for people and hair. Balanced is the lighter fallback.</p>
+                        </div>
+
+                        <div class="preview-pack-status" id="preview-pack-status">Preview pack is empty.</div>
+                    </section>
+
+                    <section class="panel-section">
+                        <div class="section-heading">
+                            <p class="section-label">Step 3</p>
+                            <h2>Refine</h2>
+                            <p class="section-copy">Magic Wand and Brush are the primary cleanup tools. Crop and Pan are available when needed.</p>
+                        </div>
+
+                        <div class="editor-tools">
+                            <div class="subsection-heading">
+                                <strong>Tool</strong>
+                                <span>Pick how you want to edit the current image.</span>
+                            </div>
+                            <div class="tool-group segmented-group" id="tool-group">
                                 <button type="button" id="wand-toggle" class="tool-button active" data-tool="wand" aria-pressed="true">Magic Wand</button>
                                 <button type="button" id="brush-toggle" class="tool-button" data-tool="brush" aria-pressed="false">Brush</button>
+                                <button type="button" id="crop-toggle" class="tool-button" data-tool="crop" aria-pressed="false">Crop</button>
                                 <button type="button" id="pan-toggle" class="tool-button" data-tool="pan" aria-pressed="false">Pan</button>
                             </div>
-                        </div>
 
-                        <div class="action-group" id="action-group" aria-label="Edit action">
-                            <button type="button" id="remove-action" class="tool-button active" data-action="remove" aria-pressed="true">Remove</button>
-                            <button type="button" id="restore-action" class="tool-button" data-action="restore" aria-pressed="false">Restore</button>
-                        </div>
-
-                        <div class="controls-grid cleanup-grid">
-                            <div class="field-group">
-                                <label for="wand-threshold">Tolerance <span id="wand-threshold-value">30</span></label>
-                                <input id="wand-threshold" type="range" min="4" max="90" value="30">
+                            <div class="subsection-heading">
+                                <strong>Action</strong>
+                                <span>Switch between removing unwanted pixels and restoring good details.</span>
+                            </div>
+                            <div class="action-group segmented-group" id="action-group" aria-label="Edit action">
+                                <button type="button" id="remove-action" class="tool-button active" data-action="remove" aria-pressed="true">Remove</button>
+                                <button type="button" id="restore-action" class="tool-button" data-action="restore" aria-pressed="false">Restore</button>
                             </div>
 
-                            <div class="field-group">
-                                <label for="brush-size">Brush size <span id="brush-size-value">28</span></label>
-                                <input id="brush-size" type="range" min="8" max="120" value="28">
+                            <div class="controls-grid cleanup-grid">
+                                <div class="field-group">
+                                    <label for="wand-threshold">Tolerance <span id="wand-threshold-value">30</span></label>
+                                    <input id="wand-threshold" type="range" min="4" max="90" value="30">
+                                </div>
+
+                                <div class="field-group">
+                                    <label for="brush-size">Brush size <span id="brush-size-value">28</span></label>
+                                    <input id="brush-size" type="range" min="8" max="120" value="28">
+                                </div>
                             </div>
 
-                            <div class="field-group">
-                                <label>&nbsp;</label>
-                                <button type="button" id="undo-button" class="ghost-button" disabled>Undo Last Remove</button>
+                            <div class="button-row utility-row">
+                                <button type="button" id="undo-button" class="ghost-button" disabled>Undo Last Edit</button>
+                                <button type="button" id="apply-crop-button" class="ghost-button" disabled>Apply Crop</button>
+                                <button type="button" id="clear-crop-button" class="ghost-button" disabled>Clear Crop</button>
                             </div>
                         </div>
                     </section>
 
-                    <div class="button-row">
-                        <button type="submit" class="primary-button">Generate Cutout</button>
-                        <button type="button" id="preview-pack-button" class="ghost-button">Generate Model Previews</button>
-                        <button type="button" id="download-button" class="secondary-button" disabled>Download Result</button>
-                        <button type="button" id="reset-button" class="ghost-button">Reset</button>
-                    </div>
+                    <section class="panel-section">
+                        <div class="section-heading">
+                            <p class="section-label">Step 4</p>
+                            <h2>Export</h2>
+                            <p class="section-copy">Set preview background, output format, and compression before download.</p>
+                        </div>
+
+                        <div class="controls-grid">
+                            <div class="field-group">
+                                <label for="background-select">Preview background</label>
+                                <select id="background-select" name="background">
+                                    <option value="transparent">Transparent</option>
+                                    <option value="white">White</option>
+                                    <option value="black">Black</option>
+                                    <option value="custom">Custom color</option>
+                                </select>
+                            </div>
+
+                            <div class="field-group" id="custom-color-group" hidden>
+                                <label for="background-color">Custom color</label>
+                                <input id="background-color" type="color" value="#f4efe6">
+                            </div>
+
+                            <div class="field-group">
+                                <label for="format-select">Export format</label>
+                                <select id="format-select" name="output_format">
+                                    <option value="png">PNG</option>
+                                    <option value="jpeg">JPEG</option>
+                                    <option value="webp">WEBP</option>
+                                </select>
+                            </div>
+
+                            <div class="field-group">
+                                <label for="quality-range">Quality <span id="quality-value">92</span></label>
+                                <input id="quality-range" name="quality" type="range" min="1" max="100" value="92">
+                            </div>
+                        </div>
+
+                        <div class="button-stack">
+                            <button type="button" id="download-button" class="secondary-button action-button" disabled>Download Result</button>
+                            <button type="button" id="reset-button" class="ghost-button action-button">Reset Workspace</button>
+                        </div>
+                    </section>
                 </form>
 
                 <div class="status-card" id="status-card" aria-live="polite">
                     Upload an image to start. Use Studio Cutout for the best general result.
                 </div>
-                <div class="preview-pack-status" id="preview-pack-status">Preview pack is empty.</div>
-            </section>
+            </aside>
 
             <section class="panel preview-panel">
                 <div class="preview-header">
                     <div>
-                        <p class="section-label">Review</p>
+                        <p class="section-label">Canvas</p>
                         <h2>Inspect and refine</h2>
+                        <p class="editor-copy">Use the canvas like an editor: compare views, zoom in, pan around, then clean edges directly.</p>
                     </div>
-                    <div class="view-mode-group" id="view-mode-group" role="tablist" aria-label="Preview mode">
+                    <div class="view-mode-group segmented-group" id="view-mode-group" role="tablist" aria-label="Preview mode">
                         <button type="button" class="view-mode-button active" data-view="result">Result</button>
                         <button type="button" class="view-mode-button" data-view="original">Original</button>
                         <button type="button" class="view-mode-button" data-view="mask">Mask</button>
@@ -135,13 +203,16 @@
                 <div class="preview-toolbar">
                     <div class="status-pill" id="mode-pill">Result view</div>
                     <div class="zoom-group">
-                        <button type="button" id="zoom-out-button" class="ghost-button">-</button>
+                        <button type="button" id="zoom-out-button" class="ghost-button icon-button" aria-label="Zoom out">-</button>
                         <button type="button" id="zoom-reset-button" class="ghost-button">Fit</button>
-                        <button type="button" id="zoom-in-button" class="ghost-button">+</button>
+                        <button type="button" id="zoom-in-button" class="ghost-button icon-button" aria-label="Zoom in">+</button>
                         <button type="button" id="zoom-200-button" class="ghost-button">200%</button>
                         <span class="zoom-value" id="zoom-value">100%</span>
                     </div>
-                    <p class="preview-hint" id="preview-hint">Hover to preview the Magic Wand selection. Use mouse wheel to zoom and Alt+drag to pan.</p>
+                </div>
+
+                <div class="context-bar">
+                    <p class="preview-hint" id="preview-hint">Hover to preview the Magic Wand selection. Use mouse wheel to zoom and drag to pan while holding Space or using the Pan tool.</p>
                 </div>
 
                 <div class="shortcut-bar">
@@ -151,11 +222,24 @@
                     <span class="shortcut-chip">Double-click: Fit</span>
                 </div>
 
-                <div class="preview-cards" id="preview-cards"></div>
+                <div class="preview-section">
+                    <div class="preview-section-header">
+                        <div>
+                            <p class="section-label">Model Compare</p>
+                            <h3>Preview Pack</h3>
+                        </div>
+                        <p class="preview-section-copy">Generate multiple cutouts, compare them visually, then apply the best one into the editor.</p>
+                    </div>
+                    <div class="preview-cards" id="preview-cards"></div>
+                </div>
 
                 <div class="compare-stage checkerboard" id="compare-stage">
                     <div class="preview-empty" id="preview-empty">
-                        Your preview and cleanup workspace will appear here.
+                        <div class="empty-state">
+                            <span class="empty-state-kicker">Editor ready</span>
+                            <strong>Your preview and cleanup workspace will appear here.</strong>
+                            <p>Import an image on the left, then generate a cutout or start cleaning manually.</p>
+                        </div>
                     </div>
                     <canvas id="result-canvas" class="preview-canvas" hidden></canvas>
                     <canvas id="overlay-canvas" class="preview-canvas overlay-canvas" hidden></canvas>
