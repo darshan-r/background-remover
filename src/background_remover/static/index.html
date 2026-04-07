@@ -117,6 +117,11 @@
                             </div>
                         </div>
 
+                        <div class="utility-cluster utility-cluster-slider" id="wand-control-group">
+                            <label class="toolbar-label toolbar-label-inline" for="wand-threshold">Tolerance <span id="wand-threshold-value">30</span></label>
+                            <input id="wand-threshold" type="range" min="4" max="90" value="30">
+                        </div>
+
                         <div class="utility-cluster utility-cluster-history">
                             <span class="toolbar-label">History</span>
                             <div class="button-row utility-row">
@@ -126,16 +131,6 @@
                     </div>
 
                     <div class="command-strip command-strip-detail">
-                        <div class="command-card context-card" id="wand-control-group">
-                            <div class="subsection-heading">
-                                <strong>Magic Wand</strong>
-                            </div>
-                            <div class="field-group">
-                                <label for="wand-threshold">Tolerance <span id="wand-threshold-value">30</span></label>
-                                <input id="wand-threshold" type="range" min="4" max="90" value="30">
-                            </div>
-                        </div>
-
                         <div class="command-card context-card" id="brush-control-group" hidden>
                             <div class="subsection-heading">
                                 <strong>Brush</strong>
@@ -235,13 +230,7 @@
                 </div>
 
                 <div class="compare-stage checkerboard" id="compare-stage">
-                    <div class="preview-empty" id="preview-empty">
-                        <div class="empty-state">
-                            <span class="empty-state-kicker">Editor ready</span>
-                            <strong>Your preview and cleanup workspace will appear here.</strong>
-                            <p>Import an image, generate a cutout, then refine and export without leaving the canvas.</p>
-                        </div>
-                    </div>
+                    <div class="preview-empty" id="preview-empty"></div>
                     <canvas id="result-canvas" class="preview-canvas" hidden></canvas>
                     <canvas id="overlay-canvas" class="preview-canvas overlay-canvas" hidden></canvas>
                     <div class="pan-overlay" id="pan-overlay" hidden>
