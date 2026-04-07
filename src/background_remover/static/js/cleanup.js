@@ -101,17 +101,68 @@ export function restoreSelection(store, selection) {
 export function paintBrush(store, point, radius) {
     store.workingContext.save();
     store.workingContext.globalCompositeOperation = "destination-out";
-    store.workingContext.beginPath();
-    store.workingContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
-    store.workingContext.fill();
+    fillBrushShape(store.workingContext, point, radius, "round");
     store.workingContext.restore();
 }
 
-export function restoreBrush(store, point, radius) {
+export function restoreBrush(store, point, radius, shape = "round") {
     store.workingContext.save();
-    store.workingContext.beginPath();
-    store.workingContext.arc(point.x, point.y, radius, 0, Math.PI * 2);
-    store.workingContext.clip();
+    clipBrushShape(store.workingContext, point, radius, shape);
     store.workingContext.drawImage(store.originalCanvas, 0, 0);
     store.workingContext.restore();
+}
+
+export function eraseBrush(store, point, radius, shape = "round") {
+    store.workingContext.save();
+    store.workingContext.globalCompositeOperation = "destination-out";
+    fillBrushShape(store.workingContext, point, radius, shape);
+    store.workingContext.restore();
+}
+
+export function applyRectSelection(store, rect) {
+    const imageData = store.workingContext.getImageData(
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+    );
+    for (let index = 3; index < imageData.data.length; index += 4) {
+        imageData.data[index] = 0;
+    }
+    store.workingContext.putImageData(imageData, rect.x, rect.y);
+}
+
+export function restoreRectSelection(store, rect) {
+    store.workingContext.clearRect(rect.x, rect.y, rect.width, rect.height);
+    store.workingContext.drawImage(
+        store.originalCanvas,
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+    );
+}
+
+function fillBrushShape(context, point, radius, shape) {
+    context.beginPath();
+    if (shape === "square") {
+        context.rect(point.x - radius, point.y - radius, radius * 2, radius * 2);
+    } else {
+        context.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    }
+    context.fill();
+}
+
+function clipBrushShape(context, point, radius, shape) {
+    context.beginPath();
+    if (shape === "square") {
+        context.rect(point.x - radius, point.y - radius, radius * 2, radius * 2);
+    } else {
+        context.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    }
+    context.clip();
 }

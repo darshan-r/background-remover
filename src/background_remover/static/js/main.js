@@ -1,9 +1,11 @@
 import { clearOverlay, createCanvasStore, drawContained, initializeCanvasStore, syncCanvasSize } from "./canvas.js";
 import {
     applySelection,
+    applyRectSelection,
     buildSelection,
-    paintBrush,
+    eraseBrush,
     restoreBrush,
+    restoreRectSelection,
     restoreSelection,
 } from "./cleanup.js";
 import { dom } from "./dom.js";
@@ -44,12 +46,30 @@ dom.zoomInButton.addEventListener("click", () => setZoom(state.zoom + 0.25));
 dom.zoomOutButton.addEventListener("click", () => setZoom(state.zoom - 0.25));
 dom.zoomResetButton.addEventListener("click", resetZoom);
 dom.zoom200Button.addEventListener("click", () => setZoom(2));
+dom.applyRectButton.addEventListener("click", applyRectSelectionAction);
+dom.clearRectButton.addEventListener("click", clearRectSelection);
 dom.applyCropButton.addEventListener("click", applyCrop);
 dom.clearCropButton.addEventListener("click", clearCropSelection);
 
 dom.brushSize.addEventListener("input", () => {
     dom.brushSizeValue.textContent = dom.brushSize.value;
     syncBrushCursorSize();
+});
+
+dom.brushShapeGroup.addEventListener("click", (event) => {
+    const button = event.target.closest(".tool-button");
+    if (!button || !button.dataset.brushShape) {
+        return;
+    }
+
+    state.brushShape = button.dataset.brushShape;
+    dom.brushShapeRound.classList.toggle("active", state.brushShape === "round");
+    dom.brushShapeSquare.classList.toggle("active", state.brushShape === "square");
+    dom.brushShapeRound.setAttribute("aria-pressed", String(state.brushShape === "round"));
+    dom.brushShapeSquare.setAttribute("aria-pressed", String(state.brushShape === "square"));
+    syncBrushCursorSize();
+    syncWorkspaceSummary();
+    renderStage();
 });
 
 dom.wandThreshold.addEventListener("input", () => {
@@ -171,14 +191,22 @@ dom.compareStage.addEventListener("pointermove", (event) => {
         return;
     }
 
-    if (state.cleanupTool === "crop") {
+    if (state.cleanupTool === "crop" || state.cleanupTool === "rect") {
         dom.wandCursor.hidden = true;
         dom.brushCursor.hidden = true;
-        dom.compareStage.style.cursor = state.isCropping ? "crosshair" : "crosshair";
-        if (state.isCropping) {
-            updateCropSelection(event);
+        dom.compareStage.style.cursor = "crosshair";
+        if (state.cleanupTool === "crop") {
+            if (state.isCropping) {
+                updateCropSelection(event);
+            } else {
+                drawCropSelection();
+            }
         } else {
-            drawCropSelection();
+            if (state.isSelectingRect) {
+                updateRectSelection(event);
+            } else {
+                drawRectSelection();
+            }
         }
         return;
     }
@@ -212,7 +240,7 @@ dom.compareStage.addEventListener("pointerleave", () => {
     state.hoverSelection = null;
     dom.wandCursor.hidden = true;
     dom.brushCursor.hidden = true;
-    if (!state.isBrushing && !state.isCropping && !state.isPanning) {
+    if (!state.isBrushing && !state.isCropping && !state.isSelectingRect && !state.isPanning) {
         dom.compareStage.style.cursor = "default";
         updatePanUi();
         renderStage();
@@ -248,6 +276,20 @@ dom.compareStage.addEventListener("pointerdown", (event) => {
         };
         dom.compareStage.setPointerCapture(event.pointerId);
         updatePanUi();
+        return;
+    }
+
+    if (state.cleanupTool === "rect") {
+        const point = mapPointerToImage(event);
+        if (!point) {
+            return;
+        }
+        state.isSelectingRect = true;
+        state.rectStart = point;
+        state.rectSelection = normalizeCropRect(point, point);
+        dom.compareStage.setPointerCapture(event.pointerId);
+        drawRectSelection();
+        syncRectButtons();
         return;
     }
 
@@ -395,13 +437,15 @@ dom.form.addEventListener("submit", async (event) => {
         state.workingReady = true;
         state.aiCutoutApplied = true;
         state.cleanupHistory = [];
+        state.rectSelection = null;
+        state.rectStart = null;
         state.cropRect = null;
         state.cropStart = null;
         dom.undoButton.disabled = true;
         state.downloadName = createDownloadName(file.name, dom.formatSelect.value);
         dom.previewEmpty.hidden = true;
         dom.downloadButton.disabled = false;
-        setStatus("Cutout ready. Use Magic Wand or Brush in remove or restore mode.");
+        setStatus("Cutout ready. Use Magic Wand, Brush, or Rectangle in remove or restore mode.");
         syncWorkspaceSummary();
         renderStage();
     } catch (error) {
@@ -435,6 +479,8 @@ function handleFileSelection() {
         state.workingReady = true;
         state.aiCutoutApplied = false;
         state.cleanupHistory = [];
+        state.rectSelection = null;
+        state.rectStart = null;
         state.cropRect = null;
         state.cropStart = null;
         dom.undoButton.disabled = true;
@@ -443,7 +489,7 @@ function handleFileSelection() {
         resetZoom();
         clearPreviewPack();
         syncFileDetails(file, image);
-        setStatus(`Loaded ${file.name}. You can use Magic Wand or Brush immediately in remove or restore mode, or generate an AI cutout first.`);
+        setStatus(`Loaded ${file.name}. You can use Magic Wand, Brush, or Rectangle immediately in remove or restore mode, or generate an AI cutout first.`);
         renderStage();
     }).catch(() => {
         setStatus("Failed to load the selected image.");
@@ -475,7 +521,11 @@ function renderStage() {
         if (state.cleanupTool === "wand") {
             dom.previewHint.textContent = `Hover to preview the connected region. Click to ${state.editAction} it.`;
         } else if (state.cleanupTool === "brush") {
-            dom.previewHint.textContent = `Brush will ${state.editAction} directly on the original image.`;
+            dom.previewHint.textContent = `${capitalize(state.brushShape)} brush will ${state.editAction} directly on the original image.`;
+        } else if (state.cleanupTool === "rect") {
+            dom.previewHint.textContent = state.rectSelection
+                ? `Rectangle ready. Apply it to ${state.editAction} that area.`
+                : `Drag a rectangle to ${state.editAction} part of the background.`;
         } else if (state.cleanupTool === "crop") {
             dom.previewHint.textContent = state.cropRect
                 ? "Drag to redraw the crop box, then apply it."
@@ -493,11 +543,20 @@ function renderStage() {
         dom.previewHint.textContent = state.cropRect
             ? "Drag to redraw the crop box, then apply it."
             : "Drag on the image to create a crop box before or after background removal.";
+    } else if (state.cleanupTool === "rect") {
+        dom.modePill.textContent = "Rectangle mode";
+        dom.previewHint.textContent = state.rectSelection
+            ? state.editAction === "restore"
+                ? "Rectangle ready. Apply it to restore that area from the original."
+                : "Rectangle ready. Apply it to clear that area."
+            : state.editAction === "restore"
+                ? "Drag a rectangle over the area you want to restore from the original."
+                : "Drag a rectangle over the background area you want to remove.";
     } else if (state.cleanupTool === "brush") {
         dom.modePill.textContent = `${capitalize(state.viewMode)} view`;
         dom.previewHint.textContent = state.editAction === "restore"
-            ? "Brush restores from the original image."
-            : "Brush directly erases from the current working image.";
+            ? `${capitalize(state.brushShape)} brush restores from the original image.`
+            : `${capitalize(state.brushShape)} brush directly erases from the current working image.`;
     } else {
         dom.modePill.textContent = `${capitalize(state.viewMode)} view`;
         dom.previewHint.textContent = state.editAction === "restore"
@@ -522,6 +581,7 @@ function clearStage() {
     dom.compareStage.classList.remove("pan-ready", "pan-locked", "crop-ready");
     syncContextControls();
     syncCropButtons();
+    syncRectButtons();
     syncWorkspaceSummary();
 }
 
@@ -647,6 +707,10 @@ function renderOverlay() {
         drawCropSelection();
         return;
     }
+    if (state.cleanupTool === "rect") {
+        drawRectSelection();
+        return;
+    }
     drawHoverSelection();
 }
 
@@ -677,6 +741,36 @@ function drawCropSelection() {
     store.overlayContext.restore();
 }
 
+function drawRectSelection() {
+    clearOverlay(dom, store);
+    if (
+        state.cleanupTool !== "rect"
+        || !state.workingReady
+        || !state.rectSelection
+        || !state.renderRect
+    ) {
+        return;
+    }
+
+    const rect = mapImageRectToStage(state.rectSelection);
+    if (!rect) {
+        return;
+    }
+
+    store.overlayContext.save();
+    store.overlayContext.fillStyle = state.editAction === "restore"
+        ? "rgba(15, 118, 110, 0.16)"
+        : "rgba(216, 91, 42, 0.18)";
+    store.overlayContext.strokeStyle = state.editAction === "restore"
+        ? "rgba(15, 118, 110, 0.95)"
+        : "rgba(216, 91, 42, 0.95)";
+    store.overlayContext.lineWidth = 2;
+    store.overlayContext.setLineDash([8, 6]);
+    store.overlayContext.fillRect(rect.x, rect.y, rect.width, rect.height);
+    store.overlayContext.strokeRect(rect.x, rect.y, rect.width, rect.height);
+    store.overlayContext.restore();
+}
+
 function updateBrushCursor(event) {
     const point = mapPointerToStage(event);
     if (!point) {
@@ -697,9 +791,9 @@ function paintAtPointer(event) {
 
     const radius = (Number(dom.brushSize.value) * (store.workingCanvas.width / state.renderRect.width)) / 2;
     if (state.editAction === "restore") {
-        restoreBrush(store, point, radius);
+        restoreBrush(store, point, radius, state.brushShape);
     } else {
-        paintBrush(store, point, radius);
+        eraseBrush(store, point, radius, state.brushShape);
     }
     renderStage();
 }
@@ -880,13 +974,18 @@ function updatePan(event) {
 function finishPointerInteraction(event) {
     const wasBrushing = state.isBrushing;
     const wasCropping = state.isCropping;
+    const wasSelectingRect = state.isSelectingRect;
     const wasPanning = state.isPanning;
 
     state.isBrushing = false;
     if (state.isCropping && event) {
         updateCropSelection(event);
     }
+    if (state.isSelectingRect && event) {
+        updateRectSelection(event);
+    }
     state.isCropping = false;
+    state.isSelectingRect = false;
     state.isPanning = false;
     state.panStart = null;
 
@@ -896,12 +995,12 @@ function finishPointerInteraction(event) {
 
     dom.compareStage.style.cursor = state.cleanupTool === "pan" || state.isSpacePanning
         ? "grab"
-        : state.cleanupTool === "crop"
+        : state.cleanupTool === "crop" || state.cleanupTool === "rect"
             ? "crosshair"
             : "default";
     updatePanUi();
 
-    if (wasBrushing || wasCropping || wasPanning) {
+    if (wasBrushing || wasCropping || wasSelectingRect || wasPanning) {
         renderStage();
     }
 }
@@ -919,6 +1018,21 @@ function updateCropSelection(event) {
     state.cropRect = normalizeCropRect(state.cropStart, point);
     drawCropSelection();
     syncCropButtons();
+}
+
+function updateRectSelection(event) {
+    if (!state.rectStart) {
+        return;
+    }
+
+    const point = mapPointerToImageClamped(event);
+    if (!point) {
+        return;
+    }
+
+    state.rectSelection = normalizeCropRect(state.rectStart, point);
+    drawRectSelection();
+    syncRectButtons();
 }
 
 function normalizeCropRect(start, end) {
@@ -953,6 +1067,39 @@ async function applyCrop() {
     state.hoverSelection = null;
     await syncOriginalImageFromCanvas();
     setStatus("Crop applied to the original image and current result.");
+    renderStage();
+}
+
+function applyRectSelectionAction() {
+    if (!state.rectSelection || !state.workingReady) {
+        return;
+    }
+
+    if (state.rectSelection.width < 2 || state.rectSelection.height < 2) {
+        setStatus("Draw a larger rectangle before applying it.");
+        return;
+    }
+
+    pushHistorySnapshot();
+    if (state.editAction === "restore") {
+        restoreRectSelection(store, state.rectSelection);
+        setStatus("Rectangle selection restored from the original image.");
+    } else {
+        applyRectSelection(store, state.rectSelection);
+        setStatus("Rectangle selection cleared from the current result.");
+    }
+    state.rectSelection = null;
+    state.rectStart = null;
+    state.hoverSelection = null;
+    syncRectButtons();
+    renderStage();
+}
+
+function clearRectSelection() {
+    state.rectSelection = null;
+    state.rectStart = null;
+    state.isSelectingRect = false;
+    syncRectButtons();
     renderStage();
 }
 
@@ -996,19 +1143,28 @@ function syncCropButtons() {
     dom.clearCropButton.disabled = !hasCrop;
 }
 
+function syncRectButtons() {
+    const hasRect = Boolean(state.rectSelection);
+    dom.applyRectButton.disabled = !hasRect || !state.workingReady;
+    dom.clearRectButton.disabled = !hasRect;
+}
+
 function setCleanupTool(tool) {
     state.cleanupTool = tool;
     state.hoverSelection = null;
     state.isCropping = false;
+    state.isSelectingRect = false;
     state.isBrushing = false;
     state.isPanning = false;
     state.panStart = null;
     dom.wandToggle.classList.toggle("active", state.cleanupTool === "wand");
     dom.brushToggle.classList.toggle("active", state.cleanupTool === "brush");
+    dom.rectToggle.classList.toggle("active", state.cleanupTool === "rect");
     dom.cropToggle.classList.toggle("active", state.cleanupTool === "crop");
     dom.panToggle.classList.toggle("active", state.cleanupTool === "pan");
     dom.wandToggle.setAttribute("aria-pressed", String(state.cleanupTool === "wand"));
     dom.brushToggle.setAttribute("aria-pressed", String(state.cleanupTool === "brush"));
+    dom.rectToggle.setAttribute("aria-pressed", String(state.cleanupTool === "rect"));
     dom.cropToggle.setAttribute("aria-pressed", String(state.cleanupTool === "crop"));
     dom.panToggle.setAttribute("aria-pressed", String(state.cleanupTool === "pan"));
     dom.wandCursor.hidden = true;
@@ -1016,7 +1172,7 @@ function setCleanupTool(tool) {
     clearOverlay(dom, store);
     dom.compareStage.style.cursor = state.cleanupTool === "pan"
         ? "grab"
-        : state.cleanupTool === "crop"
+        : state.cleanupTool === "crop" || state.cleanupTool === "rect"
             ? "crosshair"
             : "default";
     updatePanUi();
@@ -1047,14 +1203,18 @@ function updatePanUi() {
 function syncContextControls() {
     const isWand = state.cleanupTool === "wand";
     const isBrush = state.cleanupTool === "brush";
+    const isRect = state.cleanupTool === "rect";
     const isCrop = state.cleanupTool === "crop";
     const isPan = state.cleanupTool === "pan";
 
     dom.editActionBlock.hidden = isCrop || isPan;
     dom.wandControlGroup.hidden = !isWand;
     dom.brushControlGroup.hidden = !isBrush;
+    dom.rectControlGroup.hidden = !isRect;
     dom.cropControlGroup.hidden = !isCrop;
-    dom.panControlGroup.hidden = !isPan;
+    if (dom.panControlGroup) {
+        dom.panControlGroup.hidden = !isPan;
+    }
 }
 
 function clampValue(value, min, max) {
@@ -1137,6 +1297,8 @@ function applyPreview(preview) {
     state.workingReady = true;
     state.aiCutoutApplied = true;
     state.cleanupHistory = [];
+    state.rectSelection = null;
+    state.rectStart = null;
     state.cropRect = null;
     state.cropStart = null;
     dom.undoButton.disabled = true;
@@ -1200,14 +1362,18 @@ function resetState() {
     state.hoverSelection = null;
     state.renderRect = null;
     state.isCropping = false;
+    state.isSelectingRect = false;
     state.isPanning = false;
     state.isBrushing = false;
     state.panStart = null;
+    state.rectStart = null;
+    state.rectSelection = null;
     state.cropStart = null;
     state.cropRect = null;
     state.viewMode = "result";
     state.cleanupTool = "wand";
     state.editAction = "remove";
+    state.brushShape = "round";
     state.isSpacePanning = false;
     state.transientViewMode = null;
     state.zoom = 1;
@@ -1219,6 +1385,8 @@ function resetState() {
     dom.wandToggle.setAttribute("aria-pressed", "true");
     dom.brushToggle.classList.remove("active");
     dom.brushToggle.setAttribute("aria-pressed", "false");
+    dom.rectToggle.classList.remove("active");
+    dom.rectToggle.setAttribute("aria-pressed", "false");
     dom.cropToggle.classList.remove("active");
     dom.cropToggle.setAttribute("aria-pressed", "false");
     dom.panToggle.classList.remove("active");
@@ -1227,6 +1395,10 @@ function resetState() {
     dom.removeAction.setAttribute("aria-pressed", "true");
     dom.restoreAction.classList.remove("active");
     dom.restoreAction.setAttribute("aria-pressed", "false");
+    dom.brushShapeRound.classList.add("active");
+    dom.brushShapeRound.setAttribute("aria-pressed", "true");
+    dom.brushShapeSquare.classList.remove("active");
+    dom.brushShapeSquare.setAttribute("aria-pressed", "false");
 
     if (state.originalUrl) {
         URL.revokeObjectURL(state.originalUrl);
@@ -1246,6 +1418,7 @@ function resetState() {
     dom.wandCursor.hidden = true;
     dom.brushCursor.hidden = true;
     syncCropButtons();
+    syncRectButtons();
     clearPreviewPack();
     dom.previewPackStatus.textContent = "Preview pack is empty.";
     clearOverlay(dom, store);
@@ -1284,6 +1457,9 @@ function getToolLabel(tool) {
     if (tool === "brush") {
         return "Brush";
     }
+    if (tool === "rect") {
+        return "Rectangle";
+    }
     if (tool === "crop") {
         return "Crop";
     }
@@ -1296,8 +1472,18 @@ function getToolLabel(tool) {
 function getActionSummary() {
     if (state.cleanupTool === "brush") {
         return state.editAction === "restore"
-            ? "Restore missing subject details with direct paint."
-            : "Erase unwanted pixels with direct paint.";
+            ? `Restore missing subject details with the ${state.brushShape} brush.`
+            : `Erase unwanted pixels with the ${state.brushShape} brush.`;
+    }
+
+    if (state.cleanupTool === "rect") {
+        return state.rectSelection
+            ? state.editAction === "restore"
+                ? "Rectangle ready to restore that area from the original."
+                : "Rectangle ready to remove that selected area."
+            : state.editAction === "restore"
+                ? "Drag a box to restore a rectangular area."
+                : "Drag a box to remove a rectangular background area.";
     }
 
     if (state.cleanupTool === "crop") {
@@ -1328,6 +1514,10 @@ function getWorkflowStepLabel() {
         return "3. Crop selection ready";
     }
 
+    if (state.rectSelection) {
+        return "3. Rectangle selection ready";
+    }
+
     if (state.previewResults.length > 0) {
         return "3. Compare previews and refine";
     }
@@ -1354,12 +1544,15 @@ function syncBrushCursorSize() {
     dom.brushCursor.style.height = `${size}px`;
     dom.brushCursor.style.marginLeft = `${size / -2}px`;
     dom.brushCursor.style.marginTop = `${size / -2}px`;
+    dom.brushCursor.classList.toggle("square", state.brushShape === "square");
+    dom.brushCursor.classList.toggle("round", state.brushShape !== "square");
 }
 
 dom.qualityValue.textContent = dom.qualityRange.value;
 dom.brushSizeValue.textContent = dom.brushSize.value;
 dom.wandThresholdValue.textContent = dom.wandThreshold.value;
 syncBrushCursorSize();
+syncRectButtons();
 syncFileDetails();
 syncWorkspaceSummary();
 renderViewButtons();

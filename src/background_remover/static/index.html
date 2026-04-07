@@ -104,6 +104,7 @@
                             <div class="tool-group segmented-group compact-segmented-group" id="tool-group">
                                 <button type="button" id="wand-toggle" class="tool-button active" data-tool="wand" aria-pressed="true">Wand</button>
                                 <button type="button" id="brush-toggle" class="tool-button" data-tool="brush" aria-pressed="false">Brush</button>
+                                <button type="button" id="rect-toggle" class="tool-button" data-tool="rect" aria-pressed="false">Rect</button>
                                 <button type="button" id="crop-toggle" class="tool-button" data-tool="crop" aria-pressed="false">Crop</button>
                                 <button type="button" id="pan-toggle" class="tool-button" data-tool="pan" aria-pressed="false">Pan</button>
                             </div>
@@ -117,45 +118,36 @@
                             </div>
                         </div>
 
-                        <div class="utility-cluster utility-cluster-slider" id="wand-control-group">
+                        <div class="utility-cluster utility-cluster-slider context-card" id="wand-control-group">
                             <label class="toolbar-label toolbar-label-inline" for="wand-threshold">Tolerance <span id="wand-threshold-value">30</span></label>
                             <input id="wand-threshold" type="range" min="4" max="90" value="30">
                         </div>
 
-                        <div class="utility-cluster utility-cluster-history">
-                            <span class="toolbar-label">History</span>
-                            <div class="button-row utility-row">
-                                <button type="button" id="undo-button" class="ghost-button compact-utility-button" disabled>Undo</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="command-strip command-strip-detail">
-                        <div class="command-card context-card" id="brush-control-group" hidden>
-                            <div class="subsection-heading">
-                                <strong>Brush</strong>
-                            </div>
-                            <div class="field-group">
-                                <label for="brush-size">Brush size <span id="brush-size-value">28</span></label>
-                                <input id="brush-size" type="range" min="8" max="120" value="28">
+                        <div class="utility-cluster utility-cluster-brush context-card" id="brush-control-group" hidden>
+                            <label class="toolbar-label toolbar-label-inline" for="brush-size">Brush <span id="brush-size-value">28</span></label>
+                            <input id="brush-size" type="range" min="8" max="120" value="28">
+                            <div class="segmented-group compact-segmented-group" id="brush-shape-group" aria-label="Brush shape">
+                                <button type="button" id="brush-shape-round" class="tool-button active" data-brush-shape="round" aria-pressed="true">Round</button>
+                                <button type="button" id="brush-shape-square" class="tool-button" data-brush-shape="square" aria-pressed="false">Square</button>
                             </div>
                         </div>
 
-                        <div class="command-card context-card" id="crop-control-group" hidden>
-                            <div class="subsection-heading">
-                                <strong>Crop</strong>
-                            </div>
-                            <div class="button-row utility-row crop-action-row">
-                                <button type="button" id="apply-crop-button" class="ghost-button" disabled>Apply Crop</button>
-                                <button type="button" id="clear-crop-button" class="ghost-button" disabled>Clear Crop</button>
+                        <div class="utility-cluster utility-cluster-actions context-card" id="rect-control-group" hidden>
+                            <span class="toolbar-label">Selection</span>
+                            <div class="button-row utility-row compact-action-row">
+                                <button type="button" id="apply-rect-button" class="ghost-button compact-utility-button" disabled>Apply</button>
+                                <button type="button" id="clear-rect-button" class="ghost-button compact-utility-button" disabled>Clear</button>
                             </div>
                         </div>
 
-                        <div class="command-card context-card" id="pan-control-group" hidden>
-                            <div class="subsection-heading">
-                                <strong>Pan</strong>
+                        <div class="utility-cluster utility-cluster-actions context-card" id="crop-control-group" hidden>
+                            <span class="toolbar-label">Crop</span>
+                            <div class="button-row utility-row compact-action-row">
+                                <button type="button" id="apply-crop-button" class="ghost-button compact-utility-button" disabled>Apply</button>
+                                <button type="button" id="clear-crop-button" class="ghost-button compact-utility-button" disabled>Clear</button>
                             </div>
                         </div>
+
                     </div>
 
                     <div class="command-strip export-strip">
@@ -202,6 +194,7 @@
                             <div class="button-stack">
                                 <button type="button" id="download-button" class="secondary-button action-button" disabled>Download Result</button>
                                 <button type="button" id="reset-button" class="ghost-button action-button">Reset Workspace</button>
+                                <button type="button" id="undo-button" class="ghost-button action-button" disabled>Undo</button>
                             </div>
                         </div>
                     </div>
@@ -218,11 +211,11 @@
                     </div>
                 </div>
 
-                <div class="context-bar" hidden>
+                <div class="context-bar" id="context-bar" hidden>
                     <p class="preview-hint" id="preview-hint">Hover to preview the Magic Wand selection. Use mouse wheel to zoom and drag to pan while holding Space or using the Pan tool.</p>
                 </div>
 
-                <div class="shortcut-bar" hidden>
+                <div class="shortcut-bar" id="shortcut-bar" hidden>
                     <span class="shortcut-chip">Space: Pan</span>
                     <span class="shortcut-chip">O: Original</span>
                     <span class="shortcut-chip">Wheel: Zoom</span>

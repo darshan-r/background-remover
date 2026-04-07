@@ -12,10 +12,13 @@ export function createEditorState() {
         downloadName: "image-no-bg.png",
         hoverSelection: null,
         isBrushing: false,
+        isSelectingRect: false,
         isCropping: false,
         isPanning: false,
         isSpacePanning: false,
         panStart: null,
+        rectStart: null,
+        rectSelection: null,
         cropStart: null,
         cropRect: null,
         zoom: 1,
@@ -23,5 +26,6 @@ export function createEditorState() {
         panY: 0,
         previewResults: [],
         transientViewMode: null,
+        brushShape: "round",
     };
 }
