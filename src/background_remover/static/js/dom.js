@@ -52,4 +52,9 @@ export const dom = {
     viewModeGroup: document.getElementById("view-mode-group"),
     viewModeButtons: Array.from(document.querySelectorAll(".view-mode-button")),
     toolGroup: document.getElementById("tool-group"),
+    editActionBlock: document.getElementById("edit-action-block"),
+    wandControlGroup: document.getElementById("wand-control-group"),
+    brushControlGroup: document.getElementById("brush-control-group"),
+    cropControlGroup: document.getElementById("crop-control-group"),
+    panControlGroup: document.getElementById("pan-control-group"),
 };

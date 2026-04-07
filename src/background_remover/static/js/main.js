@@ -453,6 +453,7 @@ function handleFileSelection() {
 function renderStage() {
     syncCanvasSize(dom.resultCanvas, store.resultContext);
     syncCanvasSize(dom.overlayCanvas, store.overlayContext);
+    syncContextControls();
 
     if (!state.originalImage) {
         clearStage();
@@ -519,6 +520,7 @@ function clearStage() {
     dom.zoomValue.textContent = "100%";
     dom.panOverlay.hidden = true;
     dom.compareStage.classList.remove("pan-ready", "pan-locked", "crop-ready");
+    syncContextControls();
     syncCropButtons();
     syncWorkspaceSummary();
 }
@@ -1018,6 +1020,7 @@ function setCleanupTool(tool) {
             ? "crosshair"
             : "default";
     updatePanUi();
+    syncContextControls();
     syncWorkspaceSummary();
     renderStage();
 }
@@ -1039,6 +1042,19 @@ function updatePanUi() {
         : state.isSpacePanning
             ? "Temporary Pan"
             : "Pan Ready · Drag to Move";
+}
+
+function syncContextControls() {
+    const isWand = state.cleanupTool === "wand";
+    const isBrush = state.cleanupTool === "brush";
+    const isCrop = state.cleanupTool === "crop";
+    const isPan = state.cleanupTool === "pan";
+
+    dom.editActionBlock.hidden = isCrop || isPan;
+    dom.wandControlGroup.hidden = !isWand;
+    dom.brushControlGroup.hidden = !isBrush;
+    dom.cropControlGroup.hidden = !isCrop;
+    dom.panControlGroup.hidden = !isPan;
 }
 
 function clampValue(value, min, max) {
@@ -1234,6 +1250,7 @@ function resetState() {
     dom.previewPackStatus.textContent = "Preview pack is empty.";
     clearOverlay(dom, store);
     updatePanUi();
+    syncContextControls();
     setStatus("Upload an image to start. Use Studio Cutout for the best general result.");
     renderStage();
 }
@@ -1347,4 +1364,5 @@ syncFileDetails();
 syncWorkspaceSummary();
 renderViewButtons();
 updatePanUi();
+syncContextControls();
 renderStage();
