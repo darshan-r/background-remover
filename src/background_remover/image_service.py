@@ -8,23 +8,27 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageFilter
-from rembg import new_session, remove
 
 from background_remover.models import RenderOptions
 from background_remover.settings import ALLOWED_MODEL_NAMES
 
 MODEL_CACHE_DIR = Path(tempfile.gettempdir()) / "background-remover-models"
+NUMBA_CACHE_DIR = Path(tempfile.gettempdir()) / "background-remover-numba"
+remove: Any | None = None
 
 
 def _configure_runtime() -> None:
     MODEL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    NUMBA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     # Vercel functions need a writable model cache path instead of ~/.u2net.
     os.environ.setdefault("U2NET_HOME", str(MODEL_CACHE_DIR))
+    os.environ.setdefault("NUMBA_CACHE_DIR", str(NUMBA_CACHE_DIR))
 
     # Keep ONNX inference conservative in serverless environments.
     if os.getenv("VERCEL"):
         os.environ.setdefault("OMP_NUM_THREADS", "1")
+        os.environ.setdefault("NUMBA_DISABLE_JIT", "1")
 
 
 def process_image(image_bytes: bytes, options: RenderOptions) -> tuple[bytes, str]:
@@ -34,7 +38,7 @@ def process_image(image_bytes: bytes, options: RenderOptions) -> tuple[bytes, st
     if model_name not in ALLOWED_MODEL_NAMES:
         raise ValueError("Unsupported AI model.")
 
-    cutout_bytes = remove(
+    cutout_bytes = _remove_image(
         image_bytes,
         session=_get_session(model_name),
         post_process_mask=True,
@@ -53,7 +57,21 @@ def process_image(image_bytes: bytes, options: RenderOptions) -> tuple[bytes, st
 
 @lru_cache(maxsize=4)
 def _get_session(model_name: str) -> Any:
+    _configure_runtime()
+    from rembg import new_session
+
     return new_session(model_name)
+
+
+def _remove_image(*args: Any, **kwargs: Any) -> bytes:
+    global remove
+
+    if remove is None:
+        from rembg import remove as rembg_remove
+
+        remove = rembg_remove
+
+    return remove(*args, **kwargs)
 
 
 def _encode_png(image: Image.Image) -> bytes:
