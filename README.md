@@ -21,7 +21,7 @@ python main.py
 3. Leave the framework as `Other` or let Vercel detect FastAPI automatically.
 4. Deploy with the repository root as the project root.
 
-Vercel will use the root [app.py](/C:/codex/background-remover/app.py:1) entrypoint for the FastAPI app.
+Vercel can use [api/index.py](/C:/codex/background-remover/api/index.py:1) as the FastAPI serverless entrypoint.
 Static assets are served from `public/static`, which matches Vercel's FastAPI deployment guidance.
 
 ### Notes
