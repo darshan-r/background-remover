@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Annotated, Final
 
@@ -11,6 +12,7 @@ from background_remover.models import RenderOptions
 from background_remover.settings import MAX_UPLOAD_SIZE
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 IMAGE_CONTENT_TYPE_PREFIX: Final[str] = "image/"
 
 
@@ -37,6 +39,7 @@ async def remove_background(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover
+        logger.exception("Background removal failed for model '%s'.", options.model_name)
         raise HTTPException(
             status_code=500,
             detail="Background removal failed for this image.",
