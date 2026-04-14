@@ -14,7 +14,8 @@ def create_app() -> FastAPI:
 
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.include_router(router)
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    if STATIC_DIR.exists():
+        app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     return app
 
 

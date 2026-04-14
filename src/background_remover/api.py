@@ -4,19 +4,19 @@ from pathlib import Path
 from typing import Annotated, Final
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import RedirectResponse, Response
 
 from background_remover.image_service import process_image
 from background_remover.models import RenderOptions
-from background_remover.settings import MAX_UPLOAD_SIZE, STATIC_DIR
+from background_remover.settings import MAX_UPLOAD_SIZE
 
 router = APIRouter()
 IMAGE_CONTENT_TYPE_PREFIX: Final[str] = "image/"
 
 
 @router.get("/")
-async def home() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+async def home() -> RedirectResponse:
+    return RedirectResponse(url="/static/index.html", status_code=307)
 
 
 @router.get("/api/health")
