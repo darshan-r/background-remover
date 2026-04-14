@@ -3,7 +3,7 @@ name = "background-remover"
 version = "0.1.0"
 description = "Web-based background remover built with FastAPI and rembg."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.15"
 dependencies = [
     "fastapi>=0.115.0",
     "pillow>=11.0.0",

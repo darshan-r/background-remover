@@ -25,7 +25,7 @@ def test_home_serves_index() -> None:
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "Magic Wand and Brush" in response.text
+    assert "Generate Cutout" in response.text
 
 
 def test_remove_endpoint_rejects_non_image_upload() -> None:
@@ -72,5 +72,5 @@ def test_remove_endpoint_returns_processed_png(monkeypatch: Any) -> None:
 
 
 def test_index_file_exists() -> None:
-    index_path = Path("src/background_remover/static/index.html")
+    index_path = Path("public/static/index.html")
     assert index_path.exists()
